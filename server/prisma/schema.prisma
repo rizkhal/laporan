@@ -1,0 +1,30 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Setting {
+  id        Int       @id @default(autoincrement())
+  owner     String
+  repo      String
+  branch    String
+  token     String
+  lastSync  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Commit {
+  id      String   @id
+  message String
+  author  String
+  date    DateTime
+  week    Int
+  year    Int
+
+  @@index([year, week])
+  @@index([date])
+}
