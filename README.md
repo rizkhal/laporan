@@ -2,9 +2,10 @@
 
 A modern web application that syncs commits from GitHub and generates beautiful weekly development reports with analytics and summaries.
 
-## Features
+## Key Features
 
-- **Weekly Dashboard**: Visualize commits grouped by week with statistics
+- **Database-First Architecture**: Commits are loaded from database on page load (fast & efficient)
+- **Smart Sync Mechanism**: Manual sync from GitHub updates database with pagination support
 - **Repository Configuration**: Easy setup with GitHub repository credentials
 - **Commit Analytics**: Track commits, contributors, and changes per week
 - **Intelligent Navigation**: Custom back button with history tracking
@@ -12,7 +13,7 @@ A modern web application that syncs commits from GitHub and generates beautiful 
 - **Commit List**: Browse all commits with authors, dates, and commit types
 - **Modern UI**: Clean, minimal interface built with React and Tailwind CSS
 - **Type-Safe**: Full TypeScript support with strict type checking
-- **Real-time Sync**: Fetch latest commits from GitHub on demand
+- **Historical Data**: All commits automatically persisted in SQLite database
 - **Responsive Design**: Works seamlessly on desktop and mobile
 
 ## Tech Stack
@@ -73,9 +74,14 @@ VITE_GITHUB_TOKEN="your_github_token_here"
 4. **Setup database**
 ```bash
 bun run prisma:migrate
-# or reset if needed
-bun run db:reset
+# This creates tables: Setting and Commit with relationships
 ```
+
+If updating from previous version, migration will:
+- Add `settingId` foreign key to Commit table
+- Add `sha` (unique), `email`, `url` fields to Commit
+- Create indexes for performance
+- Establish Setting → Commit relationship
 
 5. **Start development server**
 ```bash
@@ -97,19 +103,23 @@ This starts both frontend (port 5173) and backend (port 3000) concurrently.
    - **Token**: GitHub Personal Access Token
 4. Click **Save Settings**
 
-### 2. Sync Commits
+### 2. Sync Commits from GitHub
 
 Click the **Sync** button in the header to fetch commits from GitHub. This will:
-- Retrieve commits from the past 3 months
-- Store them in the database
+- Fetch commits from the past 12 months (with pagination)
+- Calculate ISO week number for each commit
+- Save/update commits in database (upsert)
 - Update the `lastSync` timestamp
+
+**Note**: Page load displays commits from database (fast). Only click Sync to update from GitHub.
 
 ### 3. View Dashboard
 
 The dashboard displays:
-- **Weekly Blocks**: Each week with commit counts and statistics
+- **Weekly Blocks**: Each week with commit counts and statistics (from database)
 - **Commit Stats**: Number of commits, files changed, and contributors
 - **Commit Details**: Click a week to see all commits for that week
+- **Last Sync**: Shows when commits were last synced from GitHub
 
 ### 4. Navigate Pages
 
@@ -235,48 +245,83 @@ Create or update repository configuration.
 **Base URL**: `http://localhost:3000/api/commits`
 
 #### GET /api/commits
-Fetch commits from GitHub and update lastSync timestamp.
-
-**Query Parameters**:
-- `per_page` (optional): Results per page (default: 100)
+**Load commits from database (Database First approach)**
 
 **Response** (200 OK):
-Returns array of GitHub API commit objects:
 ```json
-[
-  {
-    "sha": "abc123...",
-    "commit": {
+{
+  "commits": [
+    {
+      "id": "abc123def",
+      "sha": "abc123def456...",
       "message": "feat: add settings endpoint",
-      "author": {
-        "name": "Developer",
-        "email": "dev@example.com",
-        "date": "2026-03-07T10:00:00Z"
-      }
-    },
-    "html_url": "https://github.com/owner/repo/commit/abc123"
-  }
-]
+      "author": "John Doe",
+      "email": "john@example.com",
+      "date": "2026-03-07T10:00:00Z",
+      "week": 10,
+      "year": 2026,
+      "url": "https://github.com/owner/repo/commit/abc123def456",
+      "settingId": 1,
+      "createdAt": "2026-03-07T10:00:00Z",
+      "updatedAt": "2026-03-07T10:00:00Z"
+    }
+  ],
+  "lastSync": "2026-03-07T14:30:00Z",
+  "count": 45,
+  "message": "No commits synced yet. Click sync to fetch commits." // optional, only if empty
+}
 ```
 
 **Response** (400 Bad Request):
 ```json
 {
-  "message": "Repository settings not configured. Please configure settings first."
+  "message": "Repository settings not configured."
 }
 ```
 
-**Response** (401 Unauthorized):
+#### POST /api/commits/sync
+**Sync commits from GitHub and update database**
+
+Fetches commits from GitHub API (12 months, paginated), calculates week/year, and upserts to database.
+
+**Response** (200 OK):
+```json
+{
+  "message": "Successfully synced 45 commits",
+  "commits": [...],
+  "lastSync": "2026-03-07T14:35:00Z",
+  "count": 45
+}
+```
+
+**Response** (400 Bad Request):
 ```json
 {
   "message": "GitHub API error: Unauthorized"
 }
 ```
 
+#### POST /api/commits/ai/summary
+**Generate AI summary from commit messages**
+
+**Request Body**:
+```json
+{
+  "commits": ["feat: add settings", "fix: resolve CORS issue", ...]
+}
+```
+
+**Response**:
+```json
+{
+  "summary": "This week we implemented the settings page, fixed CORS issues..."
+}
+```
+
 ## Database Schema
 
 ### Setting Model
-Stores repository configuration for GitHub API access.
+Stores repository configuration for GitHub API access and sync tracking.
 
 ```prisma
 model Setting {
@@ -288,24 +333,35 @@ model Setting {
   lastSync  DateTime? // Last successful sync timestamp
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+  
+  commits   Commit[]  // One-to-many relationship to commits
 }
 ```
 
 ### Commit Model
-Stores commit data grouped by week for analytics.
+Stores all synced commits with week grouping and metadata.
 
 ```prisma
 model Commit {
-  id        String    @id   // GitHub commit SHA
-  message   String            // Commit message
-  author    String            // Author name
-  date      DateTime          // Commit date
-  week      String            // Week identifier (YYYY-[W]WW format)
-  year      Int               // Year for indexing
+  id        String    @id          // Short SHA (first 12 chars) for quick access
+  sha       String    @unique      // Full GitHub SHA (40 chars)
+  message   String                 // Commit message
+  author    String                 // Author name
+  email     String?                // Author email (optional)
+  date      DateTime               // Commit date/time
+  week      Int                    // ISO 8601 week number
+  year      Int                    // Year for grouping
+  url       String?                // GitHub commit URL
+  
+  settingId Int                    // Foreign key to Setting
+  setting   Setting   @relation(...) // One-to-many relationship
+  
   createdAt DateTime  @default(now())
-
-  @@index([year, week])
-  @@index([date])
+  updatedAt DateTime  @updatedAt
+  
+  @@index([year, week])            // Fast week-based queries
+  @@index([date])                  // Fast date-based queries
+  @@index([settingId])             // Fast per-repository queries
 }
 ```
 
@@ -566,6 +622,18 @@ cn(
 ## License
 
 MIT
+
+## Sync Mechanism Documentation
+
+For detailed information about how the Database-First sync mechanism works, see:
+- **[SYNC_MECHANISM.md](./SYNC_MECHANISM.md)** - Complete technical documentation
+- **[SYNC_IMPLEMENTATION.md](./SYNC_IMPLEMENTATION.md)** - Implementation details and setup
+
+Key points:
+- ⚡ **Database First**: Loads from DB on page load (fast, no API calls)
+- 🔄 **Manual Sync**: Click "Sync" to fetch from GitHub and update DB
+- 💾 **Historical Data**: Commits are persisted in SQLite
+- 📊 **Pagination**: Fetches 12 months of commits with automatic pagination
 
 ## Future Enhancements
 

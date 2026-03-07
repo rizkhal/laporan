@@ -1,21 +1,21 @@
 import { useState } from 'react'
-import { IWeekGroup } from '../../types';
-import { generateSummary } from '../../api/commits';
-import { TYPE_COLORS } from '../../config/theme';
-import { SummaryCard } from './SummaryCard';
-import { CommitRow } from './CommitRow';
 
-function parseCommit(msg: string): { type: string; scope: string | null; subject: string } {
-    const m = msg.match(/^(\w+)(?:\(([^)]+)\))?:\s*(.*)/)
-    if (m) return { type: m[1], scope: m[2] ?? null, subject: m[3] }
-    return { type: "other", scope: null, subject: msg }
-}
+import { cn } from '../../utils/cn';
+import { CommitRow } from './CommitRow';
+import { IWeekGroup } from '../../types';
+import { SummaryCard } from './SummaryCard';
+import { TYPE_COLORS } from '../../config/theme';
+import { generateSummary } from '../../api/commits';
+import { commitParser } from '../../utils/commit-parser'
+import { exportWeekToExcel } from '../../utils/xlsx-converter';
 
 export function WeekBlock({ group }: { group: IWeekGroup }) {
     const [isOpen, setIsOpen] = useState(false)
     const [summary, setSummary] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
-    const authors = [...new Set(group.commits.map((c) => c.commit.author.name))]
+    const authors = [...new Set(group.commits.map((c) => c.author))]
+
+    const handleConvertAndDownloadExcel = () => exportWeekToExcel(group);
 
     const toggle = async () => {
         const opening = !isOpen
@@ -30,7 +30,7 @@ export function WeekBlock({ group }: { group: IWeekGroup }) {
 
     // Count types
     const typeCounts = group.commits.reduce<Record<string, number>>((acc, c) => {
-        const { type } = parseCommit(c.commit.message)
+        const { type } = commitParser(c.message)
         acc[type] = (acc[type] ?? 0) + 1
         return acc
     }, {})
@@ -40,95 +40,51 @@ export function WeekBlock({ group }: { group: IWeekGroup }) {
 
     return (
         <div
-            style={{
-                border: `1px solid ${isOpen ? "#d0cdc7" : "#e8e5e0"}`,
-                borderRadius: 12,
-                marginBottom: 12,
-                background: "#fff",
-                transition: "border-color 0.2s, box-shadow 0.2s",
-                boxShadow: isOpen ? "0 2px 12px rgba(0,0,0,0.06)" : "none",
-            }}
+            className={cn(
+                "rounded-lg mb-3 bg-white transition-all duration-200",
+                isOpen ? "border border-tertiary shadow-card" : "border border-border"
+            )}
         >
             {/* Header */}
             <button
                 onClick={toggle}
-                style={{
-                    width: "100%",
-                    padding: "18px 22px",
-                    background: isOpen ? "#faf9f7" : "#fff",
-                    border: "none",
-                    cursor: "pointer",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: 16,
-                    textAlign: "left",
-                    borderRadius: isOpen ? "12px 12px 0 0" : 12,
-                    transition: "background 0.2s",
-                }}
+                className={cn(
+                    "w-full px-5.5 py-4.5 border-none cursor-pointer flex justify-between items-center gap-4 text-left transition-colors duration-200",
+                    isOpen && "bg-bg-subtle rounded-t-lg",
+                    !isOpen && "bg-white rounded-lg"
+                )}
             >
-                <div
-                    style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 20,
-                        flexWrap: "wrap",
-                        flex: 1,
-                    }}
-                >
+                <div className="flex items-center gap-5 flex-wrap flex-1">
                     {/* Week info */}
-                    <div style={{ minWidth: 0 }}>
-                        <div
-                            style={{
-                                fontSize: 11,
-                                color: "#9b9690",
-                                fontWeight: 600,
-                                letterSpacing: "0.08em",
-                                textTransform: "uppercase",
-                                marginBottom: 3,
-                                fontFamily: "monospace",
-                            }}
-                        >
+                    <div className="min-w-0">
+                        <div className="text-sm text-tertiary font-medium tracking-[0.08em] uppercase mb-0.75 font-mono">
                             {group.week}
                         </div>
-                        <div style={{ fontSize: 16, fontWeight: 600, color: "#1a1916" }}>
+                        <div className="text-md font-medium text-primary">
                             {group.label}
                         </div>
                     </div>
 
                     {/* Stats */}
-                    <div
-                        style={{
-                            display: "flex",
-                            gap: 16,
-                            fontSize: 12.5,
-                            color: "#6b6660",
-                            flexWrap: "wrap",
-                            alignItems: "center",
-                        }}
-                    >
+                    <div className="flex gap-4 text-sm text-secondary flex-wrap items-center">
                         <span>
-                            <strong style={{ color: "#1a1916" }}>{group.commits.length}</strong>{" "}
+                            <strong className="text-primary">{group.commits.length}</strong>{" "}
                             commit{group.commits.length !== 1 ? "s" : ""}
                         </span>
-                        <span style={{ color: "#c0bdb8" }}>·</span>
+                        <span className="text-border-strong">·</span>
                         <span>{authors.join(", ")}</span>
-                        <span style={{ color: "#c0bdb8" }}>·</span>
-                        <div style={{ display: "flex", gap: 6 }}>
+                        <span className="text-border-strong">·</span>
+                        <div className="flex gap-1.5">
                             {dominantTypes.map(([type, count]) => {
                                 const color = TYPE_COLORS[type] ?? "#9ca3af"
                                 return (
                                     <span
                                         key={type}
                                         style={{
-                                            fontSize: 11,
                                             color,
                                             background: color + "18",
-                                            padding: "1px 7px",
-                                            borderRadius: 4,
-                                            fontWeight: 600,
-                                            fontFamily: "monospace",
                                         }}
+                                        className="text-xxs p-[1px_7px] text-xs rounded-md font-medium font-mono"
                                     >
                                         {type} ×{count}
                                     </span>
@@ -138,27 +94,28 @@ export function WeekBlock({ group }: { group: IWeekGroup }) {
                     </div>
                 </div>
 
-                <span
-                    style={{
-                        fontSize: 18,
-                        color: "#9b9690",
-                        flexShrink: 0,
-                        display: "block",
-                        transition: "transform 0.25s ease",
-                        transform: isOpen ? "rotate(90deg)" : "rotate(0deg)",
-                    }}
-                >
+                <span className={cn(
+                    "text-lg text-tertiary shrink-0 block transition-transform duration-250",
+                    isOpen && "rotate-90",
+                    !isOpen && "rotate-0"
+                )}>
                     ›
                 </span>
             </button>
 
             {/* Body */}
             {isOpen && (
-                <div style={{ padding: "16px 22px 20px", borderTop: "1px solid #f0ede8" }}>
+                <div className="px-5.5 pt-4 pb-5 border-t border-border">
                     <SummaryCard text={summary ?? ""} loading={loading} />
                     {group.commits.map((c) => (
                         <CommitRow key={c.sha} commit={c} />
                     ))}
+                    <div className="w-full mt-4 flex justify-end">
+                        <button
+                            onClick={handleConvertAndDownloadExcel}
+                            className='border h-10 px-4 rounded-md bg-emerald-400 hover:bg-emerald-500 font-primary border-secondary'
+                        >Download Excel</button>
+                    </div>
                 </div>
             )}
         </div>

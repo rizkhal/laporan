@@ -4,15 +4,17 @@ import { useNavigate } from "react-router-dom"
 import { cn } from "../utils/cn"
 import { groupByWeek } from "../utils/date"
 import { getSettings } from "../api/settings"
-import { IGithubCommit, IWeekGroup } from "../types"
+import { IWeekGroup } from "../types"
 import { WeekBlock } from "../components/ui/WeekBlock"
 import { ErrorBanner } from "../components/ui/ErrorBanner"
 import { SkeletonBlock } from "../components/ui/SkeletonBlock"
+import { getCommits, syncCommits as apiSyncCommits } from "../api/commits"
 
 export default function Dashboard() {
     const navigate = useNavigate()
 
     const [weeks, setWeeks] = useState<IWeekGroup[]>([])
+    const [lastSync, setLastSync] = useState<string | null>(null)
     const [isSyncing, setIsSyncing] = useState(false)
     const [isLoading, setIsLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
@@ -25,7 +27,7 @@ export default function Dashboard() {
         try {
             setIsLoading(true)
             const settings = await getSettings()
-            if (settings) await syncCommits()
+            if (settings) await loadCommitsFromDB()
         } catch (err) {
             console.error("Failed to load initial data:", err)
         } finally {
@@ -33,19 +35,27 @@ export default function Dashboard() {
         }
     }
 
+    // Load commits from database (Database First)
+    async function loadCommitsFromDB() {
+        try {
+            setError(null)
+            const data = await getCommits()
+            setWeeks(groupByWeek(data.commits))
+            setLastSync(data.lastSync)
+        } catch (err: any) {
+            setError(err.message || "Failed to load commits")
+        }
+    }
+
+    // Sync commits from GitHub and save to database
     async function syncCommits() {
         try {
             setIsSyncing(true)
             setError(null)
 
-            const response = await fetch(`/api/commits`)
-            if (!response.ok) {
-                const errorData = await response.json()
-                throw new Error(errorData.message || "Failed to fetch commits")
-            }
-
-            const commits: IGithubCommit[] = await response.json()
-            setWeeks(groupByWeek(commits))
+            const data = await apiSyncCommits()
+            setWeeks(groupByWeek(data.commits))
+            setLastSync(data.lastSync)
         } catch (err: any) {
             setError(err.message || "Failed to sync commits")
         } finally {

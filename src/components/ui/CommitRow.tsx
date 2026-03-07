@@ -1,16 +1,11 @@
 import { Avatar } from "./Avatar";
 import { CommitTag } from './CommitTag'
-import { IGithubCommit } from "../../types"
+import { IDBCommit } from "../../types"
+import { commitParser } from '../../utils/commit-parser'
 
-function parseCommit(msg: string): { type: string; scope: string | null; subject: string } {
-    const m = msg.match(/^(\w+)(?:\(([^)]+)\))?:\s*(.*)/)
-    if (m) return { type: m[1], scope: m[2] ?? null, subject: m[3] }
-    return { type: "other", scope: null, subject: msg }
-}
-
-export function CommitRow({ commit }: { commit: IGithubCommit }) {
-    const { type, scope, subject } = parseCommit(commit.commit.message)
-    const date = new Date(commit.commit.author.date).toLocaleString("en-GB", {
+export function CommitRow({ commit }: { commit: IDBCommit }) {
+    const { type, scope, subject } = commitParser(commit.message)
+    const date = new Date(commit.date).toLocaleString("en-GB", {
         day: "numeric",
         month: "short",
         hour: "2-digit",
@@ -28,8 +23,8 @@ export function CommitRow({ commit }: { commit: IGithubCommit }) {
             }}
         >
             <Avatar
-                src={commit.author?.avatar_url}
-                name={commit.commit.author.name}
+                src={undefined}
+                name={commit.author}
                 size={28}
             />
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -44,7 +39,7 @@ export function CommitRow({ commit }: { commit: IGithubCommit }) {
                 >
                     <CommitTag type={type} scope={scope} />
                     <a
-                        href={commit.html_url}
+                        href={commit.url}
                         target="_blank"
                         rel="noreferrer"
                         style={{
@@ -85,7 +80,7 @@ export function CommitRow({ commit }: { commit: IGithubCommit }) {
                     >
                         {commit.sha.slice(0, 7)}
                     </code>
-                    <span>{commit.commit.author.name}</span>
+                    <span>{commit.author}</span>
                     <span>{date}</span>
                 </div>
             </div>

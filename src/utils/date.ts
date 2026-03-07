@@ -1,4 +1,4 @@
-import { IGithubCommit, IWeekGroup } from "../types";
+import { IDBCommit, IWeekGroup } from "../types";
 
 export function getISOWeek(dateStr: string): string {
   const d = new Date(dateStr);
@@ -28,14 +28,15 @@ export function getWeekLabel(dateStr: string): string {
   return `${fmt(mon)} – ${fmt(sun)}`;
 }
 
-export function groupByWeek(commits: IGithubCommit[]): IWeekGroup[] {
+export function groupByWeek(commits: IDBCommit[]): IWeekGroup[] {
   const map: Record<string, IWeekGroup> = {};
   for (const c of commits) {
-    const key = getISOWeek(c.commit.author.date);
+    const key = getISOWeek(c.date);
+
     if (!map[key]) {
       map[key] = {
         week: key,
-        label: getWeekLabel(c.commit.author.date),
+        label: getWeekLabel(c.date),
         commits: [],
       };
     }
