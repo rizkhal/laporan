@@ -74,6 +74,7 @@ router.post("/:id/analyze", async (c) => {
   const id = parseInt(c.req.param("id"));
   const body = await c.req.json().catch(() => ({}));
   const specificRepoId = body.repoId ? parseInt(body.repoId) : null;
+  const llmProviderId = body.llmProviderId ? parseInt(body.llmProviderId) : undefined;
 
   const collection = db.select().from(schema.collections).where(eq(schema.collections.id, id)).get();
   if (!collection) return c.json({ error: "Not found" }, 404);
@@ -94,7 +95,7 @@ router.post("/:id/analyze", async (c) => {
 
   for (const repo of repos) {
     try {
-      await runAnalysisForRepo(id, repo.id);
+      await runAnalysisForRepo(id, repo.id, llmProviderId);
       results.push({ repoId: repo.id, repoName: repo.name, status: "completed" });
     } catch (err: any) {
       results.push({ repoId: repo.id, repoName: repo.name, status: "failed", error: err.message });

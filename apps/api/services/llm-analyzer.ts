@@ -8,8 +8,13 @@ interface LLMConfig {
   model: string;
 }
 
-function getLLMConfig(): LLMConfig {
-  const provider = db.select().from(schema.llmProviders).where(eq(schema.llmProviders.isActive, true)).get();
+function getLLMConfig(providerId?: number): LLMConfig {
+  let provider;
+  if (providerId) {
+    provider = db.select().from(schema.llmProviders).where(eq(schema.llmProviders.id, providerId)).get();
+  } else {
+    provider = db.select().from(schema.llmProviders).get();
+  }
   if (!provider) {
     // Fallback to env
     return {
@@ -183,9 +188,10 @@ function repairJSON(raw: string): string {
 
 export async function analyzeCommits(
   commits: CommitInput[],
-  repoName: string
+  repoName: string,
+  llmProviderId?: number
 ): Promise<AnalysisOutput> {
-  const config = getLLMConfig();
+  const config = getLLMConfig(llmProviderId);
   const prompt = buildPrompt(commits, repoName);
 
   const response = await fetch(`${config.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
@@ -264,7 +270,8 @@ export async function analyzeCommits(
 
 export async function runAnalysisForRepo(
   collectionId: number,
-  repoId: number
+  repoId: number,
+  llmProviderId?: number
 ): Promise<void> {
   const repo = db.select().from(schema.repositories).where(eq(schema.repositories.id, repoId)).get();
   if (!repo) throw new Error("Repository not found");
@@ -323,7 +330,7 @@ export async function runAnalysisForRepo(
       patchSnippets: JSON.parse(c.patchSnippets || "[]"),
     }));
 
-    const result = await analyzeCommits(commitInputs, repo.name);
+    const result = await analyzeCommits(commitInputs, repo.name, llmProviderId);
 
     db.update(schema.analyses)
       .set({

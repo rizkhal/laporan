@@ -19,6 +19,11 @@ interface Repo {
   authorEmails: string;
 }
 
+interface Category {
+  id: number;
+  name: string;
+}
+
 export default function Repositories() {
   const [repos, setRepos] = useState<Repo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -27,8 +32,13 @@ export default function Repositories() {
   const [editingRepo, setEditingRepo] = useState<Repo | null>(null);
   const [form, setForm] = useState({ name: "", localPath: "", category: "general", enabled: true, authorNames: "", authorEmails: "" });
   const [saving, setSaving] = useState(false);
+  const [categories, setCategories] = useState<Category[]>([]);
 
-  useEffect(() => { loadRepos(); }, []);
+  useEffect(() => { loadRepos(); loadCategories(); }, []);
+
+  async function loadCategories() {
+    try { setCategories(await apiFetch<Category[]>("/categories")); } catch {}
+  }
 
   async function loadRepos() {
     try {
@@ -178,7 +188,19 @@ export default function Repositories() {
             </div>
             <div>
               <Label>Category</Label>
-              <Input value={form.category} onChange={e => setForm({...form, category: e.target.value})} placeholder="general" />
+              {categories.length > 0 ? (
+                <select
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+                  value={form.category}
+                  onChange={e => setForm({...form, category: e.target.value})}
+                >
+                  {categories.map(c => (
+                    <option key={c.id} value={c.name}>{c.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <Input value={form.category} onChange={e => setForm({...form, category: e.target.value})} placeholder="general" />
+              )}
             </div>
             <div>
               <Label>Author Names (one per line)</Label>

@@ -3,61 +3,79 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
+import { Badge } from "../components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { apiFetch } from "../lib/utils";
-import { Settings, CheckCircle2, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Loader2, Bot, FolderTree } from "lucide-react";
 
-interface LLMSettings {
+interface LLMProvider {
+  id: number;
+  name: string;
   baseUrl: string;
   apiKey: string;
   model: string;
 }
 
+interface Category {
+  id: number;
+  name: string;
+}
+
 export default function SettingsPage() {
-  const [form, setForm] = useState<LLMSettings>({
-    baseUrl: "https://api.openai.com/v1",
-    apiKey: "",
-    model: "gpt-4o-mini",
-  });
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // LLM state
+  const [providers, setProviders] = useState<LLMProvider[]>([]);
+  const [llmDialogOpen, setLlmDialogOpen] = useState(false);
+  const [editingLlm, setEditingLlm] = useState<LLMProvider | null>(null);
+  const [llmForm, setLlmForm] = useState({ name: "", baseUrl: "", apiKey: "", model: "" });
+  const [savingLlm, setSavingLlm] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
 
-  useEffect(() => { loadSettings(); }, []);
+  // Category state
+  const [cats, setCats] = useState<Category[]>([]);
+  const [catDialogOpen, setCatDialogOpen] = useState(false);
+  const [editingCat, setEditingCat] = useState<Category | null>(null);
+  const [catForm, setCatForm] = useState({ name: "" });
+  const [savingCat, setSavingCat] = useState(false);
 
-  async function loadSettings() {
-    try {
-      setLoading(true);
-      const data = await apiFetch<LLMSettings>("/settings/llm");
-      setForm({
-        baseUrl: data.baseUrl || "https://api.openai.com/v1",
-        apiKey: data.apiKey || "",
-        model: data.model || "gpt-4o-mini",
-      });
-    } catch (err: any) {
-      // Use defaults
-    } finally {
-      setLoading(false);
-    }
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => { Promise.all([loadProviders(), loadCats()]).then(() => setLoading(false)); }, []);
+
+  // ── LLM ──
+  async function loadProviders() {
+    const data = await apiFetch<LLMProvider[]>("/settings/llm");
+    setProviders(data);
   }
 
-  async function handleSave() {
+  function openLlmForm(provider?: LLMProvider) {
+    setEditingLlm(provider || null);
+    setLlmForm(provider ? { name: provider.name, baseUrl: provider.baseUrl, apiKey: provider.apiKey, model: provider.model } : { name: "", baseUrl: "https://router.rizkal.space/v1", apiKey: "", model: "" });
+    setTestResult(null);
+    setLlmDialogOpen(true);
+  }
+
+  async function handleSaveLlm() {
     try {
-      setSaving(true);
-      setError(null);
-      setSaved(false);
-      await apiFetch("/settings/llm", {
-        method: "PUT",
-        body: JSON.stringify(form),
-      });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
+      setSavingLlm(true);
+      if (editingLlm) {
+        await apiFetch(`/settings/llm/${editingLlm.id}`, { method: "PUT", body: JSON.stringify(llmForm) });
+      } else {
+        await apiFetch("/settings/llm", { method: "POST", body: JSON.stringify(llmForm) });
+      }
+      await loadProviders();
+      setLlmDialogOpen(false);
     } catch (err: any) {
       setError(err.message);
     } finally {
-      setSaving(false);
+      setSavingLlm(false);
     }
+  }
+
+  async function handleDeleteLlm(id: number) {
+    if (!confirm("Delete this LLM provider?")) return;
+    await apiFetch(`/settings/llm/${id}`, { method: "DELETE" });
+    await loadProviders();
   }
 
   async function handleTest() {
@@ -65,16 +83,47 @@ export default function SettingsPage() {
       setTestResult("Testing...");
       const result = await apiFetch<{ success: boolean; content?: string; error?: string }>("/settings/llm/test", {
         method: "POST",
-        body: JSON.stringify(form),
+        body: JSON.stringify(llmForm),
       });
-      if (result.success) {
-        setTestResult(`Connection successful! ✓ Response: "${result.content}"`);
-      } else {
-        setTestResult(`Failed: ${result.error}`);
-      }
+      setTestResult(result.success ? `✓ ${result.content?.slice(0, 100)}` : `✗ ${result.error}`);
     } catch (err: any) {
-      setTestResult(`Error: ${err.message}`);
+      setTestResult(`✗ ${err.message}`);
     }
+  }
+
+  // ── Categories ──
+  async function loadCats() {
+    const data = await apiFetch<Category[]>("/categories");
+    setCats(data);
+  }
+
+  function openCatForm(cat?: Category) {
+    setEditingCat(cat || null);
+    setCatForm(cat ? { name: cat.name } : { name: "" });
+    setCatDialogOpen(true);
+  }
+
+  async function handleSaveCat() {
+    try {
+      setSavingCat(true);
+      if (editingCat) {
+        await apiFetch(`/categories/${editingCat.id}`, { method: "PUT", body: JSON.stringify(catForm) });
+      } else {
+        await apiFetch("/categories", { method: "POST", body: JSON.stringify(catForm) });
+      }
+      await loadCats();
+      setCatDialogOpen(false);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSavingCat(false);
+    }
+  }
+
+  async function handleDeleteCat(id: number) {
+    if (!confirm("Delete this category?")) return;
+    await apiFetch(`/categories/${id}`, { method: "DELETE" });
+    await loadCats();
   }
 
   if (loading) {
@@ -90,54 +139,142 @@ export default function SettingsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
-        <p className="text-muted-foreground">Configure LLM provider for analysis</p>
+        <p className="text-muted-foreground">Manage LLM providers and categories</p>
       </div>
 
       {error && (
         <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 text-destructive text-sm">{error}</div>
       )}
 
+      {/* LLM Providers */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Settings className="h-4 w-4" />
-            LLM Provider
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <Bot className="h-4 w-4" />
+              LLM Providers
+            </CardTitle>
+            <Button size="sm" onClick={() => openLlmForm()}><Plus className="h-3 w-3" /> Add Provider</Button>
+          </div>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <Label>Base URL</Label>
-            <Input value={form.baseUrl} onChange={e => setForm({...form, baseUrl: e.target.value})} placeholder="https://api.openai.com/v1" />
-          </div>
-          <div>
-            <Label>API Key</Label>
-            <Input type="password" value={form.apiKey} onChange={e => setForm({...form, apiKey: e.target.value})} placeholder="sk-..." />
-          </div>
-          <div>
-            <Label>Model</Label>
-            <Input value={form.model} onChange={e => setForm({...form, model: e.target.value})} placeholder="gpt-4o-mini" />
-          </div>
-          <div className="flex items-center gap-3 pt-2">
-            <Button onClick={handleSave} disabled={saving}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Save Settings
-            </Button>
-            <Button variant="outline" onClick={handleTest} disabled={!form.apiKey}>
-              Test Connection
-            </Button>
-            {saved && (
-              <span className="flex items-center gap-1 text-sm text-green-600">
-                <CheckCircle2 className="h-4 w-4" /> Saved
-              </span>
-            )}
-          </div>
-          {testResult && (
-            <div className={`text-sm p-2 rounded ${testResult.includes("successful") ? "bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-400" : "bg-destructive/10 text-destructive"}`}>
-              {testResult}
+        <CardContent>
+          {providers.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">No LLM providers configured. Add one to enable analysis.</p>
+          ) : (
+            <div className="space-y-3">
+              {providers.map(p => (
+                <div key={p.id} className="flex items-start justify-between p-3 border rounded-lg">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-sm">{p.name}</span>
+                      <Badge variant="secondary" className="text-xs">{p.model}</Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5 truncate">{p.baseUrl}</p>
+                  </div>
+                  <div className="flex gap-1 shrink-0 ml-2">
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openLlmForm(p)}><Pencil className="h-3.5 w-3.5" /></Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDeleteLlm(p.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </CardContent>
       </Card>
+
+      {/* Categories */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <FolderTree className="h-4 w-4" />
+              Categories
+            </CardTitle>
+            <Button size="sm" onClick={() => openCatForm()}><Plus className="h-3 w-3" /> Add Category</Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {cats.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">No categories yet. Add some to organize repositories.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {cats.map(c => (
+                <div key={c.id} className="flex items-center gap-1.5 px-3 py-1.5 border rounded-full text-sm group hover:border-primary/50 transition-colors">
+                  <span>{c.name}</span>
+                  <button className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => openCatForm(c)}>
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                  <button className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleDeleteCat(c.id)}>
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* LLM Dialog */}
+      <Dialog open={llmDialogOpen} onOpenChange={setLlmDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editingLlm ? "Edit Provider" : "Add Provider"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Provider Name</Label>
+              <Input value={llmForm.name} onChange={e => setLlmForm({...llmForm, name: e.target.value})} placeholder="My LLM" />
+            </div>
+            <div>
+              <Label>Base URL</Label>
+              <Input value={llmForm.baseUrl} onChange={e => setLlmForm({...llmForm, baseUrl: e.target.value})} placeholder="https://api.openai.com/v1" />
+            </div>
+            <div>
+              <Label>API Key</Label>
+              <Input type="password" value={llmForm.apiKey} onChange={e => setLlmForm({...llmForm, apiKey: e.target.value})} placeholder="sk-..." />
+            </div>
+            <div>
+              <Label>Model</Label>
+              <Input value={llmForm.model} onChange={e => setLlmForm({...llmForm, model: e.target.value})} placeholder="gpt-4o-mini" />
+            </div>
+            {testResult && (
+              <div className={`text-sm p-2 rounded ${testResult.startsWith("✓") ? "bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-400" : "bg-destructive/10 text-destructive"}`}>
+                {testResult}
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" size="sm" onClick={handleTest} disabled={!llmForm.apiKey}>Test Connection</Button>
+              <Button variant="outline" size="sm" onClick={() => setLlmDialogOpen(false)}>Cancel</Button>
+              <Button size="sm" onClick={handleSaveLlm} disabled={savingLlm || !llmForm.baseUrl || !llmForm.apiKey || !llmForm.model}>
+                {savingLlm ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                {editingLlm ? "Update" : "Save"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Category Dialog */}
+      <Dialog open={catDialogOpen} onOpenChange={setCatDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{editingCat ? "Edit Category" : "Add Category"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Category Name</Label>
+              <Input value={catForm.name} onChange={e => setCatForm({name: e.target.value})} placeholder="e.g., frontend" />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" size="sm" onClick={() => setCatDialogOpen(false)}>Cancel</Button>
+              <Button size="sm" onClick={handleSaveCat} disabled={savingCat || !catForm.name}>
+                {savingCat ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                {editingCat ? "Update" : "Save"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Card>
         <CardHeader>
@@ -146,8 +283,7 @@ export default function SettingsPage() {
         <CardContent>
           <p className="text-sm text-muted-foreground">
             Monthly Dev Report v1.0<br />
-            Built with Hono, React, Drizzle ORM, and SQLite.<br />
-            Uses LLM (OpenAI-compatible API) for commit analysis.
+            Built with Hono, React, Drizzle ORM, and SQLite.
           </p>
         </CardContent>
       </Card>

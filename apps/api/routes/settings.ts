@@ -6,72 +6,62 @@ import { z } from "zod";
 
 const router = new Hono();
 
-// LLM Settings
-router.get("/llm", (c) => {
-  const provider = db
-    .select()
-    .from(schema.llmProviders)
-    .where(eq(schema.llmProviders.isActive, true))
-    .get();
-  if (!provider) {
-    return c.json({
-      baseUrl: process.env.LLM_BASE_URL || "https://api.openai.com/v1",
-      apiKey: process.env.LLM_API_KEY || "",
-      model: process.env.LLM_MODEL || "gpt-4o-mini",
-    });
-  }
-  return c.json(provider);
+const providerPayload = z.object({
+  name: z.string().optional().default("default"),
+  baseUrl: z.string(),
+  apiKey: z.string(),
+  model: z.string(),
 });
 
-router.put("/llm", async (c) => {
+// Get all LLM providers
+router.get("/llm", (c) => {
+  const providers = db.select().from(schema.llmProviders).all();
+  return c.json(providers);
+});
+
+// Create a new LLM provider
+router.post("/llm", async (c) => {
   const body = await c.req.json();
-  const parsed = z
-    .object({
-      baseUrl: z.string(),
-      apiKey: z.string(),
-      model: z.string(),
-    })
-    .parse(body);
+  const parsed = providerPayload.parse(body);
+  const result = db.insert(schema.llmProviders).values({
+    name: parsed.name,
+    baseUrl: parsed.baseUrl,
+    apiKey: parsed.apiKey,
+    model: parsed.model,
+  }).returning().get();
+  return c.json(result, 201);
+});
 
-  const existing = db
-    .select()
-    .from(schema.llmProviders)
-    .where(eq(schema.llmProviders.isActive, true))
-    .get();
+// Update an LLM provider
+router.put("/llm/:id", async (c) => {
+  const id = parseInt(c.req.param("id"));
+  const body = await c.req.json();
+  const parsed = providerPayload.partial().parse(body);
+  const updateData: any = { updatedAt: new Date().toISOString() };
+  if (parsed.name !== undefined) updateData.name = parsed.name;
+  if (parsed.baseUrl !== undefined) updateData.baseUrl = parsed.baseUrl;
+  if (parsed.apiKey !== undefined) updateData.apiKey = parsed.apiKey;
+  if (parsed.model !== undefined) updateData.model = parsed.model;
+  const result = db.update(schema.llmProviders).set(updateData).where(eq(schema.llmProviders.id, id)).returning().get();
+  if (!result) return c.json({ error: "Not found" }, 404);
+  return c.json(result);
+});
 
-  if (existing) {
-    db.update(schema.llmProviders)
-      .set({
-        baseUrl: parsed.baseUrl,
-        apiKey: parsed.apiKey,
-        model: parsed.model,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(schema.llmProviders.id, existing.id))
-      .run();
-  } else {
-    db.insert(schema.llmProviders)
-      .values({
-        baseUrl: parsed.baseUrl,
-        apiKey: parsed.apiKey,
-        model: parsed.model,
-      })
-      .run();
-  }
-
+// Delete an LLM provider
+router.delete("/llm/:id", (c) => {
+  const id = parseInt(c.req.param("id"));
+  db.delete(schema.llmProviders).where(eq(schema.llmProviders.id, id)).run();
   return c.json({ success: true });
 });
 
-// Test LLM connection (server-side to avoid CORS)
+// Test LLM connection
 router.post("/llm/test", async (c) => {
   const body = await c.req.json();
-  const parsed = z
-    .object({
-      baseUrl: z.string(),
-      apiKey: z.string(),
-      model: z.string(),
-    })
-    .parse(body);
+  const parsed = z.object({
+    baseUrl: z.string(),
+    apiKey: z.string(),
+    model: z.string(),
+  }).parse(body);
 
   try {
     const response = await fetch(
@@ -101,8 +91,6 @@ router.post("/llm/test", async (c) => {
       );
     }
 
-    // Parse SSE streaming response (9router always streams)
-    // Each line: "data: {...}" with delta.content chunks
     let content = "";
     if (rawText.trim().startsWith("data: ") || rawText.includes("chat.completion.chunk")) {
       for (const line of rawText.trim().split("\n")) {
@@ -117,7 +105,6 @@ router.post("/llm/test", async (c) => {
         }
       }
     } else {
-      // Regular JSON response
       const data = JSON.parse(rawText);
       content = data.choices?.[0]?.message?.content || "";
     }

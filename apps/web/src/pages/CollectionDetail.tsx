@@ -55,6 +55,8 @@ export default function CollectionDetail() {
   const [expandedCommit, setExpandedCommit] = useState<number | null>(null);
   const [selectedRepo, setSelectedRepo] = useState<number | null>(null);
   const [editingAnalysis, setEditingAnalysis] = useState<{id: number; field: string; value: string} | null>(null);
+  const [llmProviders, setLlmProviders] = useState<{id: number; name: string; model: string}[]>([]);
+  const [selectedLlmId, setSelectedLlmId] = useState<number | null>(null);
 
   useEffect(() => { loadAll(); }, [collectionId]);
 
@@ -80,6 +82,15 @@ export default function CollectionDetail() {
       try {
         const r = await apiFetch<Report>(`/reports/${collectionId}`);
         setReport(r);
+      } catch {}
+
+      // Load LLM providers
+      try {
+        const providers = await apiFetch<{id: number; name: string; model: string}[]>("/settings/llm");
+        setLlmProviders(providers);
+        if (providers.length > 0 && selectedLlmId === null) {
+          setSelectedLlmId(providers[0].id);
+        }
       } catch {}
 
       // Set first repo as selected
@@ -108,7 +119,10 @@ export default function CollectionDetail() {
   async function handleAnalyze() {
     try {
       setAnalyzing(true);
-      await apiFetch(`/collections/${collectionId}/analyze`, { method: "POST" });
+      await apiFetch(`/collections/${collectionId}/analyze`, {
+        method: "POST",
+        body: JSON.stringify({ llmProviderId: selectedLlmId }),
+      });
       const allAnalyses = await apiFetch<Analysis[]>(`/analyses/collection/${collectionId}`);
       setAnalyses(allAnalyses);
     } catch (err: any) {
@@ -123,7 +137,7 @@ export default function CollectionDetail() {
       setAnalyzing(true);
       await apiFetch(`/collections/${collectionId}/analyze`, {
         method: "POST",
-        body: JSON.stringify({ repoId }),
+        body: JSON.stringify({ repoId, llmProviderId: selectedLlmId }),
       });
       const allAnalyses = await apiFetch<Analysis[]>(`/analyses/collection/${collectionId}`);
       setAnalyses(allAnalyses);
@@ -137,7 +151,10 @@ export default function CollectionDetail() {
   async function handleGenerateReport() {
     try {
       setGenerating(true);
-      const r = await apiFetch<Report>(`/reports/${collectionId}/generate`, { method: "POST" });
+      const r = await apiFetch<Report>(`/reports/${collectionId}/generate`, {
+        method: "POST",
+        body: JSON.stringify({ llmProviderId: selectedLlmId }),
+      });
       setReport(r);
       setCollection(prev => prev ? {...prev, status: "generated"} : prev);
     } catch (err: any) {
@@ -207,6 +224,22 @@ export default function CollectionDetail() {
           </Button>
         </div>
       </div>
+
+      {/* LLM Provider selector */}
+      {llmProviders.length > 0 && (
+        <div className="flex items-center gap-2 justify-end">
+          <span className="text-xs text-muted-foreground">LLM:</span>
+          <select
+            className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+            value={selectedLlmId || ''}
+            onChange={e => setSelectedLlmId(e.target.value ? parseInt(e.target.value) : null)}
+          >
+            {llmProviders.map(p => (
+              <option key={p.id} value={p.id}>{p.name} ({p.model})</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {error && (
         <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 text-destructive text-sm">{error}</div>

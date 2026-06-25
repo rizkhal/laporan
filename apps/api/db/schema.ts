@@ -76,7 +76,12 @@ export const analyses = sqliteTable("analyses", {
   updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
 });
 
-// ── Report Templates ──
+// ── Categories ──
+export const categories = sqliteTable("categories", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull().unique(),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+});
 export const reportTemplates = sqliteTable("report_templates", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   name: text("name").notNull(),
