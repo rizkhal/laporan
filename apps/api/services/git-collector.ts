@@ -1,7 +1,7 @@
-import { execSync } from "child_process";
+import { spawnSync } from "child_process";
 import { db } from "../db/index";
 import * as schema from "../db/schema";
-import { eq, and, gte, lte } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 
 const NOISY_FILES = [
   "package-lock.json",
@@ -31,12 +31,22 @@ function isNoisyFile(filePath: string): boolean {
   return false;
 }
 
-function runGit(cwd: string, args: string[]): string {
-  return execSync(`git ${args.join(" ")}`, {
-    cwd,
-    encoding: "utf-8",
-    maxBuffer: 10 * 1024 * 1024,
-  });
+function runGit(cwd: string, args: string[], bufferSize = 100): string {
+  try {
+    const result = spawnSync("git", args, {
+      cwd,
+      encoding: "utf-8",
+      maxBuffer: bufferSize * 1024 * 1024,
+    });
+    if (result.error) throw result.error;
+    if (result.status !== 0) {
+      throw new Error(result.stderr?.trim() || `git exited with code ${result.status}`);
+    }
+    return result.stdout || "";
+  } catch (err: any) {
+    console.error(`[git] ERROR: ${err.message.slice(0, 300)}`);
+    throw err;
+  }
 }
 
 interface RawCommit {
@@ -68,13 +78,18 @@ function getCommitsInRange(
   authors: string[],
   emails: string[],
 ): RawCommit[] {
-  const authorFilters = authors.map((a) => `--author=${a}`).join(" ");
-  const emailFilters = emails.map((e) => `--author=${e}`).join(" ");
-  const allFilters = [authorFilters, emailFilters].filter(Boolean).join(" ");
+  const args = [
+    "log",
+    "--format=%H||%an||%ae||%aI||%s",
+    `--since=${since}`,
+    `--until=${until}`,
+    "--all",
+    "--no-merges",
+    ...authors.map((a) => `--author=${a}`),
+    ...emails.map((e) => `--author=${e}`),
+  ];
 
-  const logFormat = "--format=%H||%an||%ae||%aI||%s";
-  const cmd = `log ${logFormat} --since="${since}" --until="${until}" --all --no-merges ${allFilters}`;
-  const output = runGit(repoPath, cmd.split(" ").filter(Boolean));
+  const output = runGit(repoPath, args);
 
   if (!output.trim()) return [];
 

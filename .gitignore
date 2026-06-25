@@ -1,6 +1,8 @@
 node_modules
 .env
 apps/api/db/dev.db
+apps/api/db/dev.db-shm
+apps/api/db/dev.db-wal
 apps/api/db/migrations
 dist
 dist-server
