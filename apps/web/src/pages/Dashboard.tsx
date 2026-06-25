@@ -137,7 +137,7 @@ export default function Dashboard() {
               const current = phase === index + 1;
               return (
                 <div key={step.name} className="relative border-b p-5 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0">
-                  <div className={done ? "text-emerald-600 dark:text-emerald-400" : current ? "text-primary" : "text-muted-foreground"}>
+                  <div className={done ? "text-success-foreground" : current ? "text-primary" : "text-muted-foreground"}>
                     {done ? <Check className="size-4" /> : current ? <CircleDashed className="size-4" /> : <step.icon className="size-4" />}
                   </div>
                   <p className="mt-4 text-sm font-semibold">{step.name}</p>

@@ -8,6 +8,7 @@ import { reportsRouter } from "./routes/reports";
 import { analysesRouter } from "./routes/analyses";
 import { collectionDetailRouter } from "./routes/collection-detail";
 import { categoriesRouter } from "./routes/categories";
+import { authRouter } from "./routes/auth";
 
 const app = new Hono();
 
@@ -26,6 +27,7 @@ app.route("/api/settings", settingsRouter);
 app.route("/api/reports", reportsRouter);
 app.route("/api/analyses", analysesRouter);
 app.route("/api/categories", categoriesRouter);
+app.route("/api/auth", authRouter);
 
 app.get("/api/health", (c) => c.json({ status: "ok" }));
 

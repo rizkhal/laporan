@@ -187,7 +187,7 @@ export default function CollectionDetail() {
             { label: "Report", detail: report ? "Generated and editable" : "Waiting for generation", complete: !!report },
           ].map((phase, index) => (
             <div key={phase.label} className={`flex items-center gap-3 rounded-xl px-4 py-3 ${currentPhase === index + 1 ? "bg-primary/7" : "bg-muted/40"}`}>
-              <span className={`grid size-7 place-items-center rounded-full ${phase.complete ? "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400" : currentPhase === index + 1 ? "bg-primary/12 text-primary" : "bg-muted text-muted-foreground"}`}>
+              <span className={`grid size-7 place-items-center rounded-full ${phase.complete ? "bg-success/15 text-success-foreground" : currentPhase === index + 1 ? "bg-primary/12 text-primary" : "bg-muted text-muted-foreground"}`}>
                 {phase.complete ? <Check className="size-3.5" /> : <span className="font-mono text-xs">{index + 1}</span>}
               </span>
               <div><p className="text-sm font-semibold">{phase.label}</p><p className="text-xs text-muted-foreground">{phase.detail}</p></div>
@@ -223,7 +223,7 @@ export default function CollectionDetail() {
                   return (
                     <button key={repo.id} type="button" onClick={() => setSelectedRepo(repo.id)} className={`w-full rounded-xl p-3 text-left transition-colors ${selectedRepo === repo.id ? "bg-primary/8" : "hover:bg-muted"}`}>
                       <div className="flex items-center gap-2"><GitBranch className="size-3.5 text-muted-foreground" /><span className="truncate text-sm font-semibold">{repo.name}</span><span className="ml-auto font-mono text-xs">{repoCommits.length}</span></div>
-                      <div className="mt-2 flex gap-3 font-mono text-[10px] text-muted-foreground"><span className="text-emerald-600 dark:text-emerald-400">+{insertions}</span><span className="text-rose-600 dark:text-rose-400">-{deletions}</span><span>{repo.category}</span></div>
+                      <div className="mt-2 flex gap-3 font-mono text-[10px] text-muted-foreground"><span className="text-success-foreground">+{insertions}</span><span className="text-destructive">-{deletions}</span><span>{repo.category}</span></div>
                     </button>
                   );
                 })}
@@ -245,7 +245,7 @@ export default function CollectionDetail() {
                       <p className="truncate text-sm font-medium">{commit.message}</p>
                       <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                         <code className="font-mono text-[11px]">{commit.hash.slice(0, 8)}</code><span>{commit.authorName}</span><span>{new Date(commit.date).toLocaleDateString()}</span><span>{commit.filesChanged} files</span>
-                        <span className="font-mono text-emerald-600 dark:text-emerald-400">+{commit.insertions}</span><span className="font-mono text-rose-600 dark:text-rose-400">-{commit.deletions}</span>
+                        <span className="font-mono text-success-foreground">+{commit.insertions}</span><span className="font-mono text-destructive">-{commit.deletions}</span>
                       </div>
                     </div>
                   </button>
@@ -274,7 +274,7 @@ export default function CollectionDetail() {
                   <div className="mt-4 space-y-2">
                     {repos.map((repo) => {
                       const analysis = analyses.find((item) => item.repoId === repo.id);
-                      return <div key={repo.id} className="flex items-center gap-2 text-xs"><span className={`size-1.5 rounded-full ${analysis?.status === "completed" ? "bg-emerald-500" : "bg-muted-foreground/30"}`} /><span className="truncate">{repo.name}</span><span className="ml-auto text-muted-foreground">{analysis?.status || "pending"}</span></div>;
+                      return <div key={repo.id} className="flex items-center gap-2 text-xs"><span className={`size-1.5 rounded-full ${analysis?.status === "completed" ? "bg-success" : "bg-muted-foreground/30"}`} /><span className="truncate">{repo.name}</span><span className="ml-auto text-muted-foreground">{analysis?.status || "pending"}</span></div>;
                     })}
                   </div>
                 </div>
@@ -332,7 +332,7 @@ export default function CollectionDetail() {
 }
 
 function Metric({ label, value, icon: Icon, tone }: { label: string; value: string | number; icon: typeof GitCommit; tone?: "positive" | "negative" }) {
-  return <div className="surface rounded-xl p-5"><div className="flex items-center justify-between"><p className="text-xs font-medium text-muted-foreground">{label}</p><Icon className="size-4 text-muted-foreground" /></div><p className={`mt-5 font-mono text-2xl font-semibold ${tone === "positive" ? "text-emerald-600 dark:text-emerald-400" : tone === "negative" ? "text-rose-600 dark:text-rose-400" : ""}`}>{value}</p></div>;
+  return <div className="surface rounded-xl p-5"><div className="flex items-center justify-between"><p className="text-xs font-medium text-muted-foreground">{label}</p><Icon className="size-4 text-muted-foreground" /></div><p className={`mt-5 font-mono text-2xl font-semibold ${tone === "positive" ? "text-success-foreground" : tone === "negative" ? "text-destructive" : ""}`}>{value}</p></div>;
 }
 
 function CommitEvidence({ commit }: { commit: Commit }) {
@@ -345,8 +345,8 @@ function CommitEvidence({ commit }: { commit: Commit }) {
         {snippets.slice(0, 4).map((snippet) => (
           <details key={snippet.file} className="overflow-hidden rounded-xl border bg-card dark:border-white/[0.07] dark:bg-white/[0.025]">
             <summary className="cursor-pointer px-4 py-3 font-mono text-xs font-medium">{snippet.file}</summary>
-            <pre className="max-h-80 overflow-auto border-t bg-[#0d1117] p-4 font-mono text-[11px] leading-5 text-slate-300">
-              {snippet.patch.split("\n").map((line, index) => <span key={index} className={`block ${line.startsWith("+") ? "text-emerald-300" : line.startsWith("-") ? "text-rose-300" : line.startsWith("@@") ? "text-sky-300" : ""}`}>{line || " "}</span>)}
+            <pre className="diff-block max-h-80 overflow-auto border-t p-4 font-mono text-[11px] leading-5">
+              {snippet.patch.split("\n").map((line, index) => <span key={index} className={`block ${line.startsWith("+") ? "diff-add" : line.startsWith("-") ? "diff-del" : line.startsWith("@@") ? "diff-hunk" : ""}`}>{line || " "}</span>)}
             </pre>
           </details>
         ))}

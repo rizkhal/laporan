@@ -1,20 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { cn } from "../lib/utils";
+import { useAuth } from "../lib/auth";
 import {
-  ArrowRight, BarChart3, Command, FileText, FolderGit2, Moon,
-  Search, Settings, Sun, Tags, X,
+  ArrowRight, BarChart3, Command, FileText, FolderGit2, LogOut, Moon,
+  Search, Settings, Sun, Tags, User, X,
 } from "lucide-react";
 
 const navItems = [
-  { href: "/", label: "Overview", icon: BarChart3 },
+  { href: "/dashboard", label: "Overview", icon: BarChart3 },
   { href: "/collections", label: "Collections", icon: FolderGit2 },
   { href: "/repositories", label: "Repositories", icon: FolderGit2 },
   { href: "/categories", label: "Categories", icon: Tags },
 ];
 
 const commands = [
-  { label: "Open overview", href: "/", detail: "Dashboard" },
+  { label: "Open overview", href: "/dashboard", detail: "Dashboard" },
   { label: "Start a collection", href: "/collections", detail: "Collection" },
   { label: "Manage repositories", href: "/repositories", detail: "Configuration" },
   { label: "Manage categories", href: "/categories", detail: "Configuration" },
@@ -24,6 +25,8 @@ const commands = [
 export function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [dark, setDark] = useState(() =>
@@ -70,7 +73,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
           <nav className="hidden items-center gap-1 lg:flex">
             {navItems.map((item) => {
-              const active = item.href === "/" ? location.pathname === "/" : location.pathname.startsWith(item.href);
+              const active = item.href === "/dashboard" ? location.pathname === "/dashboard" : location.pathname.startsWith(item.href);
               return (
                 <Link
                   key={item.href}
@@ -102,15 +105,43 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <button type="button" aria-label={dark ? "Use light theme" : "Use dark theme"} onClick={() => setDark((value) => !value)} className="grid size-9 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground">
               {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
             </button>
-            <Link to="/settings" aria-label="Settings" className={cn("grid size-9 place-items-center rounded-lg", location.pathname === "/settings" ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
+            <Link to="/settings" aria-label="Settings" className={cn("hidden sm:grid size-9 place-items-center rounded-lg", location.pathname === "/settings" ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
               <Settings className="size-4" />
             </Link>
+
+            {/* User menu */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setUserMenuOpen((v) => !v)}
+                className="grid size-8 place-items-center rounded-lg bg-muted text-xs font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              >
+                {user?.name?.charAt(0).toUpperCase() || <User className="size-4" />}
+              </button>
+              {userMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setUserMenuOpen(false)} />
+                  <div className="absolute right-0 top-full z-50 mt-1.5 w-56 overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-xl shadow-popover/15">
+                    <div className="border-b px-4 py-3">
+                      <p className="truncate text-sm font-medium">{user?.name}</p>
+                      <p className="truncate text-xs text-muted-foreground">{user?.email}</p>
+                    </div>
+                    <Link to="/settings" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+                      <Settings className="size-4" /> Settings
+                    </Link>
+                    <button type="button" onClick={() => { setUserMenuOpen(false); logout(); navigate("/"); }} className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+                      <LogOut className="size-4" /> Sign out
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
 
         <nav className="flex gap-1 overflow-x-auto px-4 pb-2 lg:hidden">
           {navItems.slice(0, 3).map((item) => (
-            <Link key={item.href} to={item.href} className={cn("whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium", (item.href === "/" ? location.pathname === "/" : location.pathname.startsWith(item.href)) ? "bg-muted text-foreground" : "text-muted-foreground")}>
+            <Link key={item.href} to={item.href} className={cn("whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium", (item.href === "/dashboard" ? location.pathname === "/dashboard" : location.pathname.startsWith(item.href)) ? "bg-muted text-foreground" : "text-muted-foreground")}>
               {item.label}
             </Link>
           ))}
@@ -120,8 +151,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <main id="main-content" className="mx-auto w-full max-w-[1480px] px-4 py-6 sm:px-6 sm:py-8">{children}</main>
 
       {paletteOpen && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-950/45 px-4 pt-[12vh] backdrop-blur-sm dark:bg-black/70" onMouseDown={() => setPaletteOpen(false)}>
-          <div className="w-full max-w-xl overflow-hidden rounded-2xl border border-border bg-popover shadow-2xl shadow-black/20 dark:shadow-black/60" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-overlay px-4 pt-[12vh] backdrop-blur-sm" onMouseDown={() => setPaletteOpen(false)}>
+          <div className="w-full max-w-xl overflow-hidden rounded-2xl border border-border bg-popover shadow-2xl shadow-popover/15" onMouseDown={(event) => event.stopPropagation()}>
             <div className="flex items-center gap-3 border-b px-4">
               <Search className="size-4 text-muted-foreground" />
               <input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search pages and actions" className="h-14 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground" />

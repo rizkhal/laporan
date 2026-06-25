@@ -180,8 +180,8 @@ export default function Collections() {
                       <div>
                         <p className="text-xs text-muted-foreground">Code volume</p>
                         <p className="mt-1 font-mono text-sm font-semibold">
-                          <span className="text-emerald-600 dark:text-emerald-400">+{collectionStats.totalInsertions || 0}</span>
-                          <span className="ml-2 text-rose-600 dark:text-rose-400">-{collectionStats.totalDeletions || 0}</span>
+                          <span className="text-success-foreground">+{collectionStats.totalInsertions || 0}</span>
+                          <span className="ml-2 text-destructive">-{collectionStats.totalDeletions || 0}</span>
                         </p>
                       </div>
                     </div>

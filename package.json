@@ -12,6 +12,10 @@
     "db:studio": "npm run db:studio -w apps/api"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "concurrently": "^9.2.1"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3"
   }
 }
