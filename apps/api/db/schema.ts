@@ -21,12 +21,31 @@ export const sessions = sqliteTable("sessions", {
 });
 
 // ── Workspaces ──
-// Every user gets one default workspace on registration.
-// Future: teams / multi-workspace support can extend from here.
 export const workspaces = sqliteTable("workspaces", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   name: text("name").notNull(),
+  slug: text("slug").notNull(),
+  description: text("description"),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
+});
+
+// ── Workspace Members ──
+export const workspaceMembers = sqliteTable("workspace_members", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: integer("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  role: text("role").notNull().default("member"), // owner, admin, member
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+});
+
+// ── SSH Keys (per workspace) ──
+export const sshKeys = sqliteTable("ssh_keys", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: integer("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  label: text("label").notNull().default("default"),
+  privateKey: text("private_key").notNull(),
+  publicKey: text("public_key"),
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
   updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
 });

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { cn } from "../lib/utils";
 import { useAuth } from "../lib/auth";
+import { WorkspaceSwitcher } from "./workspace-switcher";
 import {
   ArrowRight, BarChart3, Command, FileText, FolderGit2, LogOut, Moon,
   Search, Settings, Sun, Tags, User, X,
@@ -63,13 +64,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
     <div className="min-h-[100dvh] bg-background text-foreground">
       <a href="#main-content" className="skip-link">Skip to content</a>
       <header className="sticky top-0 z-30 border-b border-border/70 bg-background/88 backdrop-blur-xl dark:border-white/[0.055] dark:bg-background/78">
-        <div className="mx-auto flex h-16 max-w-[1480px] items-center gap-5 px-4 sm:px-6">
-          <Link to="/" className="flex shrink-0 items-center gap-2.5">
-            <span className="grid size-8 place-items-center rounded-[10px] bg-primary text-white shadow-sm shadow-primary/20">
-              <FileText className="size-4" strokeWidth={1.8} />
-            </span>
-            <span className="hidden text-sm font-semibold tracking-[-0.02em] sm:block">Monthly Report</span>
-          </Link>
+        <div className="mx-auto flex h-16 max-w-[1480px] items-center gap-3 px-4 sm:px-6">
+          <div className="flex shrink-0 items-center gap-2">
+            <Link to="/" className="flex items-center gap-2.5">
+              <span className="grid size-8 place-items-center rounded-[10px] bg-primary text-white shadow-sm shadow-primary/20">
+                <FileText className="size-4" strokeWidth={1.8} />
+              </span>
+              <span className="hidden text-sm font-semibold tracking-[-0.02em] sm:block">Monthly Report</span>
+            </Link>
+            <span className="hidden h-6 w-px bg-border sm:block" />
+            <WorkspaceSwitcher />
+          </div>
 
           <nav className="hidden items-center gap-1 lg:flex">
             {navItems.map((item) => {

@@ -1,12 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
+import { Textarea } from "../components/ui/textarea";
 import { Label } from "../components/ui/label";
 import { Badge } from "../components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { apiFetch, cn } from "../lib/utils";
 import { useAuth } from "../lib/auth";
-import { Plus, Pencil, Trash2, Loader2, Bot, KeyRound, FileText, User, Save } from "lucide-react";
+import {
+  Plus, Pencil, Trash2, Loader2, Bot, KeyRound, FileText, User, Save,
+  Building2, Hash, Check, X,
+} from "lucide-react";
 
 interface LLMProvider {
   id: number;
@@ -16,17 +20,18 @@ interface LLMProvider {
   model: string;
 }
 
-type SettingsTab = "profile" | "llm" | "private-key" | "report-template";
+type SettingsTab = "profile" | "workspace" | "llm" | "private-key" | "report-template";
 
 const settingsNav = [
   { id: "profile" as SettingsTab, label: "Profile", icon: User },
+  { id: "workspace" as SettingsTab, label: "Workspace", icon: Building2 },
   { id: "llm" as SettingsTab, label: "LLM Providers", icon: Bot },
   { id: "private-key" as SettingsTab, label: "Private Key", icon: KeyRound },
   { id: "report-template" as SettingsTab, label: "Report Template", icon: FileText },
 ];
 
 export default function SettingsPage() {
-  const { user, updateProfile } = useAuth();
+  const { user, updateProfile, activeWorkspace, refreshWorkspaces, workspaces } = useAuth();
   const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
 
   // Profile state
@@ -35,6 +40,14 @@ export default function SettingsPage() {
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileSuccess, setProfileSuccess] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
+
+  // Workspace state
+  const [wsName, setWsName] = useState("");
+  const [wsDescription, setWsDescription] = useState("");
+  const [wsSaving, setWsSaving] = useState(false);
+  const [wsSuccess, setWsSuccess] = useState<string | null>(null);
+  const [wsError, setWsError] = useState<string | null>(null);
+  const [wsSshKey, setWsSshKey] = useState<string | null>(null);
 
   // LLM state
   const [providers, setProviders] = useState<LLMProvider[]>([]);
@@ -52,8 +65,28 @@ export default function SettingsPage() {
       setProfileName(user.name);
       setProfileEmail(user.email);
     }
+    if (activeWorkspace) {
+      setWsName(activeWorkspace.name);
+      setWsDescription(activeWorkspace.description || "");
+    }
     loadProviders().then(() => setLoading(false));
-  }, [user]);
+  }, [user, activeWorkspace]);
+
+  // Refresh workspace info when tab changes to workspace
+  const loadWorkspaceDetails = useCallback(async () => {
+    if (!activeWorkspace) return;
+    try {
+      const data = await apiFetch<{ name: string; description: string | null }>(`/workspaces/${activeWorkspace.id}`);
+      setWsName(data.name);
+      setWsDescription(data.description || "");
+    } catch {}
+  }, [activeWorkspace]);
+
+  useEffect(() => {
+    if (activeTab === "workspace" && activeWorkspace) {
+      loadWorkspaceDetails();
+    }
+  }, [activeTab, activeWorkspace, loadWorkspaceDetails]);
 
   async function loadProviders() {
     try {
@@ -74,6 +107,26 @@ export default function SettingsPage() {
       setProfileError(err.message);
     } finally {
       setProfileSaving(false);
+    }
+  }
+
+  async function handleSaveWorkspace() {
+    if (!activeWorkspace) return;
+    setWsError(null);
+    setWsSuccess(null);
+    setWsSaving(true);
+    try {
+      await apiFetch(`/workspaces/${activeWorkspace.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ name: wsName, description: wsDescription || null }),
+      });
+      await refreshWorkspaces();
+      setWsSuccess("Workspace updated successfully.");
+      setTimeout(() => setWsSuccess(null), 3000);
+    } catch (err: any) {
+      setWsError(err.message);
+    } finally {
+      setWsSaving(false);
     }
   }
 
@@ -133,7 +186,7 @@ export default function SettingsPage() {
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
-        <p className="text-muted-foreground">Manage system configuration</p>
+        <p className="text-muted-foreground">Manage your account and workspace</p>
       </div>
 
       {error && (
@@ -204,6 +257,89 @@ export default function SettingsPage() {
                       Save changes
                     </Button>
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "workspace" && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-lg font-semibold tracking-tight">Workspace</h2>
+                <p className="text-sm text-muted-foreground">Manage your current workspace settings and SSH key.</p>
+              </div>
+
+              <div className="surface rounded-xl p-6">
+                <div className="mb-6 flex items-center gap-3">
+                  <span className="grid size-12 place-items-center rounded-xl bg-primary/10 text-lg font-bold text-primary">
+                    {activeWorkspace?.name?.charAt(0).toUpperCase() || "W"}
+                  </span>
+                  <div>
+                    <p className="font-medium">{activeWorkspace?.name}</p>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Hash className="size-3" />
+                      <span className="font-mono">ID: {activeWorkspace?.id}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {wsError && (
+                  <div className="rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive mb-4">{wsError}</div>
+                )}
+                {wsSuccess && (
+                  <div className="rounded-lg border border-success/20 bg-success/10 px-4 py-3 text-sm text-success-foreground mb-4">{wsSuccess}</div>
+                )}
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="ws-name">Workspace name</Label>
+                    <Input id="ws-name" value={wsName} onChange={e => setWsName(e.target.value)} placeholder="Workspace name" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="ws-desc">Description</Label>
+                    <Input id="ws-desc" value={wsDescription} onChange={e => setWsDescription(e.target.value)} placeholder="Describe this workspace" />
+                  </div>
+                  <div className="flex justify-end pt-2">
+                    <Button onClick={handleSaveWorkspace} disabled={wsSaving || !wsName.trim()}>
+                      {wsSaving && <Loader2 className="size-4 animate-spin" />}
+                      <Save className="size-4" />
+                      Save changes
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Workspace ID info */}
+              <div className="surface rounded-xl p-6">
+                <h3 className="text-sm font-semibold mb-3">Workspace details</h3>
+                <div className="space-y-3 text-sm">
+                  <div className="flex items-center justify-between py-1.5">
+                    <span className="text-muted-foreground">Workspace ID</span>
+                    <span className="font-mono text-xs">{activeWorkspace?.id}</span>
+                  </div>
+                  <div className="flex items-center justify-between py-1.5">
+                    <span className="text-muted-foreground">Slug</span>
+                    <span className="font-mono text-xs">{activeWorkspace?.slug}</span>
+                  </div>
+                  <div className="flex items-center justify-between py-1.5">
+                    <span className="text-muted-foreground">Active workspaces</span>
+                    <span className="font-mono text-xs">{workspaces.length}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* SSH Key section */}
+              <div className="surface rounded-xl p-6">
+                <h3 className="text-sm font-semibold mb-1">SSH Key</h3>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Configure an SSH key for this workspace to access private repositories during collection.
+                </p>
+                <div className="rounded-lg border border-dashed border-border p-6 text-center">
+                  <KeyRound className="mx-auto size-8 text-muted-foreground/40" />
+                  <p className="mt-2 text-sm font-medium text-muted-foreground">No SSH key configured</p>
+                  <p className="mt-1 text-xs text-muted-foreground max-w-xs mx-auto">
+                    SSH key management will be available in a future update. You'll be able to store a single key per workspace.
+                  </p>
                 </div>
               </div>
             </div>

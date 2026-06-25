@@ -1,9 +1,9 @@
 /**
  * Workspace migration - idempotent, safe to run on every startup.
  *
- * Creates the workspaces table, adds workspaceId columns,
- * creates default workspaces for users, and assigns existing
- * data to the appropriate workspace.
+ * Creates the workspaces table, workspace_members, ssh_keys,
+ * adds slug/description columns, creates default workspaces
+ * for users, and assigns existing data to the appropriate workspace.
  */
 import Database from "better-sqlite3";
 import path from "path";
@@ -15,6 +15,17 @@ const DB_PATH = process.env.DATABASE_URL
   : path.join(__dirname, "dev.db");
 
 let migrated = false;
+
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/[\s_]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    || "workspace";
+}
 
 export function runMigration(): void {
   if (migrated) return;
@@ -28,40 +39,108 @@ export function runMigration(): void {
     sqlite.pragma("journal_mode = WAL");
     sqlite.pragma("foreign_keys = OFF");
 
-    // 1. Create workspaces table
+    // 1. Create workspaces table (with new slug/description columns)
+    const hasSlug = (sqlite.prepare("PRAGMA table_info(workspaces)").all() as any[]).some((c: any) => c.name === "slug");
+    if (!hasSlug) {
+      // Drop old table and recreate — safe because we backup data first
+      const oldWorkspaces = sqlite.prepare("SELECT id, name, user_id, created_at, updated_at FROM workspaces").all() as any[];
+      sqlite!.exec("DROP TABLE IF EXISTS workspaces");
+      sqlite!.exec(`
+        CREATE TABLE workspaces (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          slug TEXT NOT NULL,
+          description TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+      `);
+      // Migrate old workspaces
+      for (const ws of oldWorkspaces) {
+        const slug = slugify(ws.name);
+        sqlite!.prepare("INSERT INTO workspaces (id, name, slug, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
+          .run(ws.id, ws.name, slug, ws.created_at, ws.updated_at);
+      }
+      console.log(`  → Recreated workspaces table with slug/description (migrated ${oldWorkspaces.length} records)`);
+    } else {
+      console.log("  → workspaces table already has slug column");
+    }
+
+    // 2. Create workspace_members table
     sqlite.exec(`
-      CREATE TABLE IF NOT EXISTS workspaces (
+      CREATE TABLE IF NOT EXISTS workspace_members (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
+        workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
         user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role TEXT NOT NULL DEFAULT 'member',
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+
+    // 3. Create ssh_keys table
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS ssh_keys (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        label TEXT NOT NULL DEFAULT 'default',
+        private_key TEXT NOT NULL,
+        public_key TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
     `);
 
-    // 2. Create default workspace for each user who doesn't have one
+    // 4. Create default workspace + owner membership for each user who needs it
     const users = sqlite.prepare("SELECT id, name FROM users").all() as any[];
-    let workspaceCount = 0;
+    let newWorkspaceCount = 0;
+    let newMemberCount = 0;
+
     for (const user of users) {
-      const existing = sqlite.prepare("SELECT id FROM workspaces WHERE user_id = ?").get(user.id);
-      if (!existing) {
-        sqlite.prepare("INSERT INTO workspaces (name, user_id) VALUES (?, ?)").run(`${user.name}'s Workspace`, user.id);
-        workspaceCount++;
+      // Check if user already has a membership
+      const existingMembership = sqlite.prepare(
+        "SELECT wm.id FROM workspace_members wm JOIN workspaces w ON w.id = wm.workspace_id WHERE wm.user_id = ? AND wm.role = 'owner'"
+      ).get(user.id);
+
+      if (!existingMembership) {
+        // Check if they have an old-style workspace (via user_id)
+        const oldWorkspace = sqlite.prepare("SELECT id, name FROM workspaces WHERE id IN (SELECT workspace_id FROM workspace_members WHERE user_id = ?)").get(user.id) as any;
+
+        if (oldWorkspace) {
+          // Create membership for existing workspace
+          sqlite.prepare("INSERT OR IGNORE INTO workspace_members (workspace_id, user_id, role) VALUES (?, ?, 'owner')")
+            .run(oldWorkspace.id, user.id);
+          newMemberCount++;
+        } else {
+          // Create new workspace for this user
+          const wsName = `${user.name}'s Workspace`;
+          const slug = slugify(wsName);
+          const result = sqlite!.prepare("INSERT INTO workspaces (name, slug) VALUES (?, ?)").run(wsName, slug);
+          const workspaceId = result.lastInsertRowid as number;
+          sqlite.prepare("INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (?, ?, 'owner')")
+            .run(workspaceId, user.id);
+          newWorkspaceCount++;
+          newMemberCount++;
+        }
       }
     }
-    if (workspaceCount > 0) {
-      console.log(`  → Created ${workspaceCount} workspaces for new users`);
-    }
+    if (newWorkspaceCount > 0) console.log(`  → Created ${newWorkspaceCount} new workspaces`);
+    if (newMemberCount > 0) console.log(`  → Created ${newMemberCount} owner memberships`);
 
-    // 3. Determine default workspace for existing records (first user's workspace)
+    // 5. Determine default workspace for existing orphan records (first user's first workspace)
     const firstUser = users[0];
-    let defaultWorkspaceId = 1;
+    let defaultWorkspaceId: number | null = null;
     if (firstUser) {
-      const ws = sqlite.prepare("SELECT id FROM workspaces WHERE user_id = ?").get(firstUser.id) as any;
+      const ws = sqlite.prepare(
+        "SELECT w.id FROM workspaces w JOIN workspace_members wm ON wm.workspace_id = w.id WHERE wm.user_id = ? AND wm.role = 'owner' LIMIT 1"
+      ).get(firstUser.id) as any;
       if (ws) defaultWorkspaceId = ws.id;
     }
+    if (!defaultWorkspaceId) {
+      const anyWs = sqlite.prepare("SELECT id FROM workspaces LIMIT 1").get() as any;
+      defaultWorkspaceId = anyWs?.id || 1;
+    }
 
-    // 4. Add workspace_id columns to tables that need them
+    // 6. Add workspace_id columns to tables that need them
     const tablesToMigrate = [
       { name: "repositories", hasData: true },
       { name: "collections", hasData: true },
@@ -91,15 +170,13 @@ export function runMigration(): void {
       }
     }
 
-    // 5. Recreate categories table without old unique constraint on name,
-    //    since names are now scoped per workspace.
+    // 7. Recreate categories table without old unique constraint on name
     try {
       const oldIndices = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='categories'").all() as any[];
       const hasOldUnique = oldIndices.some((i: any) =>
         i.name.includes("categories_name_unique") || i.name.includes("sqlite_autoindex_categories")
       );
       if (hasOldUnique) {
-        // Check if the new table already exists (from a previous partial migration)
         const hasNewTable = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='categories_new'").get();
         if (!hasNewTable) {
           sqlite!.exec(`
@@ -131,7 +208,6 @@ export function runMigration(): void {
   }
 }
 
-// Allow running standalone: npx tsx db/migrate-workspaces.ts
 const isMain = process.argv[1]?.includes("migrate-workspaces");
 if (isMain) {
   runMigration();

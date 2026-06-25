@@ -1,11 +1,11 @@
 import { Hono } from "hono";
 import { db } from "../db/index";
 import * as schema from "../db/schema";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
-import { requireAuth } from "../lib/auth";
+import { requireAuth, slugify } from "../lib/auth";
 
 const router = new Hono();
 
@@ -58,9 +58,17 @@ router.post("/register", async (c) => {
 
     // Create default personal workspace for the user
     const workspaceName = `${parsed.name}'s Workspace`;
-    db.insert(schema.workspaces).values({
+    const wsSlug = slugify(workspaceName);
+    const ws = db.insert(schema.workspaces).values({
       name: workspaceName,
+      slug: wsSlug,
+    }).returning().get();
+
+    // Create owner membership
+    db.insert(schema.workspaceMembers).values({
+      workspaceId: ws.id,
       userId: user.id,
+      role: "owner",
     }).run();
 
     // Create session
@@ -121,18 +129,46 @@ router.post("/logout", async (c) => {
   return c.json({ success: true });
 });
 
-// Get current user
+// Get current user with workspace info
 router.get("/me", (c) => {
   try {
     const ctx = requireAuth(c);
-    return c.json(ctx.user);
+    // Get all workspaces the user is a member of
+    const memberships = db
+      .select()
+      .from(schema.workspaceMembers)
+      .where(eq(schema.workspaceMembers.userId, ctx.user.id))
+      .all();
+    const workspaceIds = memberships.map(m => m.workspaceId);
+    let userWorkspaces: { id: number; name: string; slug: string; description: string | null }[] = [];
+    if (workspaceIds.length > 0) {
+      const raw = db.select().from(schema.workspaces)
+        .where(inArray(schema.workspaces.id, workspaceIds))
+        .all();
+      userWorkspaces = raw.map(w => ({
+        id: w.id, name: w.name, slug: w.slug, description: w.description,
+      }));
+    }
+    return c.json({
+      user: ctx.user,
+      workspaces: userWorkspaces.map(w => ({
+        id: w.id, name: w.name, slug: w.slug, description: w.description
+      })),
+      activeWorkspace: {
+        id: ctx.workspace.id, name: ctx.workspace.name, slug: ctx.workspace.slug
+      },
+    });
   } catch {
-    // Fallback to simple token lookup for backward compatibility
+    // Fallback to simple token lookup
     const auth = c.req.header("Authorization");
     const token = auth?.replace("Bearer ", "");
     const user = getUserFromToken(token);
     if (!user) return c.json({ error: "Not authenticated" }, 401);
-    return c.json({ id: user.id, name: user.name, email: user.email, avatar: user.avatar });
+    return c.json({
+      user: { id: user.id, name: user.name, email: user.email, avatar: user.avatar },
+      workspaces: [],
+      activeWorkspace: null,
+    });
   }
 });
 
