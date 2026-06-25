@@ -3,6 +3,7 @@ import { db } from "../db/index";
 import * as schema from "../db/schema";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { requireAuth, assertOwnership } from "../lib/auth";
 
 const router = new Hono();
 
@@ -13,17 +14,24 @@ const providerPayload = z.object({
   model: z.string(),
 });
 
-// Get all LLM providers
+// Get all LLM providers scoped to workspace
 router.get("/llm", (c) => {
-  const providers = db.select().from(schema.llmProviders).all();
+  const ctx = requireAuth(c);
+  const providers = db
+    .select()
+    .from(schema.llmProviders)
+    .where(eq(schema.llmProviders.workspaceId, ctx.workspace.id))
+    .all();
   return c.json(providers);
 });
 
 // Create a new LLM provider
 router.post("/llm", async (c) => {
+  const ctx = requireAuth(c);
   const body = await c.req.json();
   const parsed = providerPayload.parse(body);
   const result = db.insert(schema.llmProviders).values({
+    workspaceId: ctx.workspace.id,
     name: parsed.name,
     baseUrl: parsed.baseUrl,
     apiKey: parsed.apiKey,
@@ -34,7 +42,11 @@ router.post("/llm", async (c) => {
 
 // Update an LLM provider
 router.put("/llm/:id", async (c) => {
+  const ctx = requireAuth(c);
   const id = parseInt(c.req.param("id"));
+  const provider = db.select().from(schema.llmProviders).where(eq(schema.llmProviders.id, id)).get();
+  assertOwnership(provider, ctx.workspace.id, "LLM provider");
+
   const body = await c.req.json();
   const parsed = providerPayload.partial().parse(body);
   const updateData: any = { updatedAt: new Date().toISOString() };
@@ -49,7 +61,10 @@ router.put("/llm/:id", async (c) => {
 
 // Delete an LLM provider
 router.delete("/llm/:id", (c) => {
+  const ctx = requireAuth(c);
   const id = parseInt(c.req.param("id"));
+  const provider = db.select().from(schema.llmProviders).where(eq(schema.llmProviders.id, id)).get();
+  assertOwnership(provider, ctx.workspace.id, "LLM provider");
   db.delete(schema.llmProviders).where(eq(schema.llmProviders.id, id)).run();
   return c.json({ success: true });
 });

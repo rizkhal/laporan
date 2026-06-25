@@ -1,15 +1,20 @@
 import { Hono } from "hono";
 import { db } from "../db/index";
 import * as schema from "../db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { requireAuth, assertOwnership } from "../lib/auth";
 import { generateReport } from "../services/report-formatter";
 
 const router = new Hono();
 
 // Get report for a collection
 router.get("/:collectionId", (c) => {
+  const ctx = requireAuth(c);
   const collectionId = parseInt(c.req.param("collectionId"));
+  const collection = db.select().from(schema.collections).where(eq(schema.collections.id, collectionId)).get();
+  assertOwnership(collection, ctx.workspace.id, "Collection");
+
   const report = db.select().from(schema.reports).where(eq(schema.reports.collectionId, collectionId)).get();
   if (!report) return c.json({ error: "Not found" }, 404);
   return c.json(report);
@@ -17,9 +22,10 @@ router.get("/:collectionId", (c) => {
 
 // Generate report for a collection
 router.post("/:collectionId/generate", async (c) => {
+  const ctx = requireAuth(c);
   const collectionId = parseInt(c.req.param("collectionId"));
   const collection = db.select().from(schema.collections).where(eq(schema.collections.id, collectionId)).get();
-  if (!collection) return c.json({ error: "Collection not found" }, 404);
+  assertOwnership(collection, ctx.workspace.id, "Collection");
 
   db.update(schema.collections).set({ status: "generating" }).where(eq(schema.collections.id, collectionId)).run();
 
@@ -54,7 +60,15 @@ router.post("/:collectionId/generate", async (c) => {
 
 // Update report
 router.put("/:id", async (c) => {
+  const ctx = requireAuth(c);
   const id = parseInt(c.req.param("id"));
+  const report = db.select().from(schema.reports).where(eq(schema.reports.id, id)).get();
+  if (!report) return c.json({ error: "Not found" }, 404);
+
+  // Verify ownership through collection
+  const collection = db.select().from(schema.collections).where(eq(schema.collections.id, report.collectionId)).get();
+  assertOwnership(collection, ctx.workspace.id, "Report");
+
   const body = await c.req.json();
   const parsed = z.object({ content: z.string() }).parse(body);
 
@@ -63,8 +77,8 @@ router.put("/:id", async (c) => {
     .where(eq(schema.reports.id, id))
     .run();
 
-  const report = db.select().from(schema.reports).where(eq(schema.reports.id, id)).get();
-  return c.json(report);
+  const updated = db.select().from(schema.reports).where(eq(schema.reports.id, id)).get();
+  return c.json(updated);
 });
 
 export { router as reportsRouter };

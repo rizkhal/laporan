@@ -5,11 +5,12 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "concurrently -n landing,api,web -c blue,green,yellow \"npm run dev -w apps/landing\" \"npm run dev -w apps/api\" \"npm run dev -w apps/web\""
+    "dev": "concurrently -n landing,api,web -c blue,green,yellow \"npm run dev -w apps/landing\" \"npm run dev -w apps/api\" \"npm run dev -w apps/web\"",
     "build": "npm run build -w apps/web",
     "db:push": "npm run db:push -w apps/api",
     "db:generate": "npm run db:generate -w apps/api",
-    "db:studio": "npm run db:studio -w apps/api"
+    "db:studio": "npm run db:studio -w apps/api",
+    "db:migrate": "npx tsx apps/api/db/migrate-workspaces.ts"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import { requireAuth } from "../lib/auth";
 
 const router = new Hono();
 
@@ -25,7 +26,7 @@ const updateProfilePayload = z.object({
   avatar: z.string().nullable().optional(),
 });
 
-// Helper to get current user from token
+// Helper to get current user from token (without requiring workspace — used before workspace exists)
 function getUserFromToken(token: string | undefined) {
   if (!token) return null;
   const session = db.select().from(schema.sessions).where(eq(schema.sessions.token, token)).get();
@@ -47,11 +48,20 @@ router.post("/register", async (c) => {
     }
 
     const passwordHash = await bcrypt.hash(parsed.password, 10);
+
+    // Create user
     const user = db.insert(schema.users).values({
       name: parsed.name,
       email: parsed.email,
       passwordHash,
     }).returning().get();
+
+    // Create default personal workspace for the user
+    const workspaceName = `${parsed.name}'s Workspace`;
+    db.insert(schema.workspaces).values({
+      name: workspaceName,
+      userId: user.id,
+    }).run();
 
     // Create session
     const token = crypto.randomBytes(48).toString("hex");
@@ -113,21 +123,24 @@ router.post("/logout", async (c) => {
 
 // Get current user
 router.get("/me", (c) => {
-  const auth = c.req.header("Authorization");
-  const token = auth?.replace("Bearer ", "");
-  const user = getUserFromToken(token);
-  if (!user) return c.json({ error: "Not authenticated" }, 401);
-  return c.json({ id: user.id, name: user.name, email: user.email, avatar: user.avatar });
+  try {
+    const ctx = requireAuth(c);
+    return c.json(ctx.user);
+  } catch {
+    // Fallback to simple token lookup for backward compatibility
+    const auth = c.req.header("Authorization");
+    const token = auth?.replace("Bearer ", "");
+    const user = getUserFromToken(token);
+    if (!user) return c.json({ error: "Not authenticated" }, 401);
+    return c.json({ id: user.id, name: user.name, email: user.email, avatar: user.avatar });
+  }
 });
 
 // Update profile
 router.put("/profile", async (c) => {
-  const auth = c.req.header("Authorization");
-  const token = auth?.replace("Bearer ", "");
-  const user = getUserFromToken(token);
-  if (!user) return c.json({ error: "Not authenticated" }, 401);
-
   try {
+    const ctx = requireAuth(c);
+
     const body = await c.req.json();
     const parsed = updateProfilePayload.parse(body);
 
@@ -136,14 +149,14 @@ router.put("/profile", async (c) => {
     if (parsed.email !== undefined) {
       // Check email uniqueness
       const existing = db.select().from(schema.users).where(eq(schema.users.email, parsed.email)).get();
-      if (existing && existing.id !== user.id) {
+      if (existing && existing.id !== ctx.user.id) {
         return c.json({ error: "Email already in use" }, 409);
       }
       updateData.email = parsed.email;
     }
     if (parsed.avatar !== undefined) updateData.avatar = parsed.avatar;
 
-    const updated = db.update(schema.users).set(updateData).where(eq(schema.users.id, user.id)).returning().get();
+    const updated = db.update(schema.users).set(updateData).where(eq(schema.users.id, ctx.user.id)).returning().get();
     return c.json({ id: updated.id, name: updated.name, email: updated.email, avatar: updated.avatar });
   } catch (err: any) {
     if (err instanceof z.ZodError) {
