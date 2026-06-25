@@ -20,19 +20,17 @@ interface LLMProvider {
   model: string;
 }
 
-type SettingsTab = "profile" | "workspace" | "llm" | "private-key" | "report-template";
+type SettingsTab = "profile" | "workspace";
 
 const settingsNav = [
   { id: "profile" as SettingsTab, label: "Profile", icon: User },
   { id: "workspace" as SettingsTab, label: "Workspace", icon: Building2 },
-  { id: "llm" as SettingsTab, label: "LLM Providers", icon: Bot },
-  { id: "private-key" as SettingsTab, label: "Private Key", icon: KeyRound },
-  { id: "report-template" as SettingsTab, label: "Report Template", icon: FileText },
 ];
 
 export default function SettingsPage() {
   const { user, updateProfile, activeWorkspace, refreshWorkspaces, workspaces } = useAuth();
   const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
+  const [workspaceTab, setWorkspaceTab] = useState<"general" | "llm" | "report-template">("general");
 
   // Profile state
   const [profileName, setProfileName] = useState("");
@@ -376,9 +374,53 @@ export default function SettingsPage() {
             <div className="space-y-6">
               <div>
                 <h2 className="text-lg font-semibold tracking-tight">Workspace</h2>
-                <p className="text-sm text-muted-foreground">Manage your current workspace settings and SSH key.</p>
+                <p className="text-sm text-muted-foreground">Configure workspace settings, LLM providers, and report templates.</p>
+
+              {/* Workspace sub-navigation */}
+              <div className="flex gap-1 border-b border-border pb-1 mb-6">
+                <button
+                  type="button"
+                  onClick={() => setWorkspaceTab("general")}
+                  className={cn(
+                    "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                    workspaceTab === "general"
+                      ? "bg-muted text-foreground"
+                      : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                  )}
+                >
+                  General
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWorkspaceTab("llm")}
+                  className={cn(
+                    "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                    workspaceTab === "llm"
+                      ? "bg-muted text-foreground"
+                      : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                  )}
+                >
+                  LLM Providers
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWorkspaceTab("report-template")}
+                  className={cn(
+                    "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                    workspaceTab === "report-template"
+                      ? "bg-muted text-foreground"
+                      : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                  )}
+                >
+                  Report Template
+                </button>
+              </div>
               </div>
 
+              {workspaceTab === "general" && (
+              <div className="space-y-6">
+              <div className="space-y-6">
+              </div>
               <div className="surface rounded-xl p-6">
                 <div className="mb-6 flex items-center gap-3">
                   <span className="grid size-12 place-items-center rounded-xl bg-primary/10 text-lg font-bold text-primary">
@@ -452,47 +494,9 @@ export default function SettingsPage() {
                   </p>
                 </div>
               </div>
-            </div>
-          )}
 
-          {activeTab === "llm" && (
-            <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold tracking-tight">LLM Providers</h2>
-                  <p className="text-sm text-muted-foreground">Configure AI models for commit analysis and report generation.</p>
-                </div>
-                <Button size="sm" onClick={() => openLlmForm()}><Plus className="h-3 w-3" /> Add Provider</Button>
-              </div>
-
-              {providers.length === 0 ? (
-                <div className="surface rounded-xl px-6 py-14 text-center">
-                  <Bot className="mx-auto size-9 text-muted-foreground/50" />
-                  <h3 className="mt-4 font-semibold">No providers configured</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">Add an OpenAI-compatible provider to enable analysis.</p>
-                  <Button className="mt-5" size="sm" onClick={() => openLlmForm()}><Plus className="h-3 w-3" /> Add Provider</Button>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {providers.map(p => (
-                    <div key={p.id} className="surface rounded-xl p-4">
-                      <div className="flex items-start justify-between">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-sm">{p.name}</span>
-                            <Badge variant="secondary" className="text-xs">{p.model}</Badge>
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-0.5 truncate">{p.baseUrl}</p>
-                        </div>
-                        <div className="flex gap-1 shrink-0 ml-2">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openLlmForm(p)}><Pencil className="h-3.5 w-3.5" /></Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDeleteLlm(p.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
               {/* Delete Workspace */}
-              <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-6 mt-6">
+              <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-6">
                 <div className="flex items-start justify-between">
                   <div>
                     <h3 className="text-base font-semibold text-destructive">Delete Workspace</h3>
@@ -544,79 +548,104 @@ export default function SettingsPage() {
                   </div>
                 </DialogContent>
               </Dialog>
-                </div>
+              </div>
               )}
 
-              <Dialog open={llmDialogOpen} onOpenChange={setLlmDialogOpen}>
-                <DialogContent className="max-w-md">
-                  <DialogHeader>
-                    <DialogTitle>{editingLlm ? "Edit Provider" : "Add Provider"}</DialogTitle>
-                  </DialogHeader>
-                  <div className="space-y-3">
-                    <div>
-                      <Label>Provider Name</Label>
-                      <Input value={llmForm.name} onChange={e => setLlmForm({...llmForm, name: e.target.value})} placeholder="My LLM" />
-                    </div>
-                    <div>
-                      <Label>Base URL</Label>
-                      <Input value={llmForm.baseUrl} onChange={e => setLlmForm({...llmForm, baseUrl: e.target.value})} placeholder="https://api.openai.com/v1" />
-                    </div>
-                    <div>
-                      <Label>API Key</Label>
-                      <Input type="password" value={llmForm.apiKey} onChange={e => setLlmForm({...llmForm, apiKey: e.target.value})} placeholder="sk-..." />
-                    </div>
-                    <div>
-                      <Label>Model</Label>
-                      <Input value={llmForm.model} onChange={e => setLlmForm({...llmForm, model: e.target.value})} placeholder="gpt-4o-mini" />
-                    </div>
-                    {testResult && (
-                      <div className={`rounded-lg border p-3 text-sm ${testResult.startsWith("✓") ? "border-success/20 bg-success/10 text-success-foreground" : "border-destructive/20 bg-destructive/10 text-destructive"}`}>
-                        {testResult}
-                      </div>
-                    )}
-                    <div className="flex justify-end gap-2 pt-2">
-                      <Button variant="outline" size="sm" onClick={handleTest} disabled={!llmForm.apiKey}>Test Connection</Button>
-                      <Button variant="outline" size="sm" onClick={() => setLlmDialogOpen(false)}>Cancel</Button>
-                      <Button size="sm" onClick={handleSaveLlm} disabled={savingLlm || !llmForm.baseUrl || !llmForm.apiKey || !llmForm.model}>
-                        {savingLlm ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                        {editingLlm ? "Update" : "Save"}
-                      </Button>
-                    </div>
+              {workspaceTab === "llm" && (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-lg font-semibold tracking-tight">LLM Providers</h2>
+                    <p className="text-sm text-muted-foreground">Configure AI models for commit analysis and report generation.</p>
                   </div>
-                </DialogContent>
-              </Dialog>
-            </div>
-          )}
+                  <Button size="sm" onClick={() => openLlmForm()}><Plus className="h-3 w-3" /> Add Provider</Button>
+                </div>
 
-          {activeTab === "private-key" && (
-            <div className="space-y-6">
-              <div>
-                <h2 className="text-lg font-semibold tracking-tight">Private Key</h2>
-                <p className="text-sm text-muted-foreground">Manage SSH keys for private repository access.</p>
-              </div>
-              <div className="surface rounded-xl px-6 py-16 text-center">
-                <KeyRound className="mx-auto size-10 text-muted-foreground/40" />
-                <h3 className="mt-4 font-semibold">Coming soon</h3>
-                <p className="mt-1.5 text-sm text-muted-foreground max-w-sm mx-auto">
-                  Private key management will be available in a future update. You'll be able to store SSH keys for accessing private repositories during collection.
-                </p>
-              </div>
-            </div>
-          )}
+                {providers.length === 0 ? (
+                  <div className="surface rounded-xl px-6 py-14 text-center">
+                    <Bot className="mx-auto size-9 text-muted-foreground/50" />
+                    <h3 className="mt-4 font-semibold">No providers configured</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">Add an OpenAI-compatible provider to enable analysis.</p>
+                    <Button className="mt-5" size="sm" onClick={() => openLlmForm()}><Plus className="h-3 w-3" /> Add Provider</Button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {providers.map(p => (
+                      <div key={p.id} className="surface rounded-xl p-4">
+                        <div className="flex items-start justify-between">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-sm">{p.name}</span>
+                              <Badge variant="secondary" className="text-xs">{p.model}</Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-0.5 truncate">{p.baseUrl}</p>
+                          </div>
+                          <div className="flex gap-1 shrink-0 ml-2">
+                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openLlmForm(p)}><Pencil className="h-3.5 w-3.5" /></Button>
+                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDeleteLlm(p.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
-          {activeTab === "report-template" && (
-            <div className="space-y-6">
-              <div>
-                <h2 className="text-lg font-semibold tracking-tight">Report Template</h2>
-                <p className="text-sm text-muted-foreground">Customize the markdown template used for generated reports.</p>
+                <Dialog open={llmDialogOpen} onOpenChange={setLlmDialogOpen}>
+                  <DialogContent className="max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>{editingLlm ? "Edit Provider" : "Add Provider"}</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-3">
+                      <div>
+                        <Label>Provider Name</Label>
+                        <Input value={llmForm.name} onChange={e => setLlmForm({...llmForm, name: e.target.value})} placeholder="My LLM" />
+                      </div>
+                      <div>
+                        <Label>Base URL</Label>
+                        <Input value={llmForm.baseUrl} onChange={e => setLlmForm({...llmForm, baseUrl: e.target.value})} placeholder="https://api.openai.com/v1" />
+                      </div>
+                      <div>
+                        <Label>API Key</Label>
+                        <Input type="password" value={llmForm.apiKey} onChange={e => setLlmForm({...llmForm, apiKey: e.target.value})} placeholder="sk-..." />
+                      </div>
+                      <div>
+                        <Label>Model</Label>
+                        <Input value={llmForm.model} onChange={e => setLlmForm({...llmForm, model: e.target.value})} placeholder="gpt-4o-mini" />
+                      </div>
+                      {testResult && (
+                        <div className={`rounded-lg border p-3 text-sm ${testResult.startsWith("✓") ? "border-success/20 bg-success/10 text-success-foreground" : "border-destructive/20 bg-destructive/10 text-destructive"}`}>
+                          {testResult}
+                        </div>
+                      )}
+                      <div className="flex justify-end gap-2 pt-2">
+                        <Button variant="outline" size="sm" onClick={handleTest} disabled={!llmForm.apiKey}>Test Connection</Button>
+                        <Button variant="outline" size="sm" onClick={() => setLlmDialogOpen(false)}>Cancel</Button>
+                        <Button size="sm" onClick={handleSaveLlm} disabled={savingLlm || !llmForm.baseUrl || !llmForm.apiKey || !llmForm.model}>
+                          {savingLlm ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                          {editingLlm ? "Update" : "Save"}
+                        </Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
               </div>
-              <div className="surface rounded-xl px-6 py-16 text-center">
-                <FileText className="mx-auto size-10 text-muted-foreground/40" />
-                <h3 className="mt-4 font-semibold">Coming soon</h3>
-                <p className="mt-1.5 text-sm text-muted-foreground max-w-sm mx-auto">
-                  Report templates will be available in a future update. You'll be able to design custom templates for your monthly reports.
-                </p>
+              )}
+
+              {workspaceTab === "report-template" && (
+              <div className="space-y-6">
+                <div>
+                  <h2 className="text-lg font-semibold tracking-tight">Report Template</h2>
+                  <p className="text-sm text-muted-foreground">Customize the markdown template used for generated reports.</p>
+                </div>
+                <div className="surface rounded-xl px-6 py-16 text-center">
+                  <FileText className="mx-auto size-10 text-muted-foreground/40" />
+                  <h3 className="mt-4 font-semibold">Coming soon</h3>
+                  <p className="mt-1.5 text-sm text-muted-foreground max-w-sm mx-auto">
+                    Report templates will be available in a future update. You'll be able to design custom templates for your monthly reports.
+                  </p>
+                </div>
               </div>
+              )}
             </div>
           )}
         </div>
