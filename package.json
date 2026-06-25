@@ -1,48 +1,17 @@
 {
-  "name": "git-weekly-report",
+  "name": "monthly-dev-report",
   "private": true,
-  "version": "0.0.0",
-  "type": "module",
+  "workspaces": [
+    "apps/*"
+  ],
   "scripts": {
-    "dev": "concurrently \"bun run dev:web\" \"bun run dev:server\"",
-    "dev:web": "vite",
-    "dev:server": "tsx --watch server/index.ts",
-    "build": "vite build",
-    "preview": "vite preview",
-    "db:reset": "prisma migrate reset --force --schema=server/prisma/schema.prisma",
-    "prisma:generate": "bunx prisma generate --schema=server/prisma/schema.prisma",
-    "prisma:migrate": "bunx prisma migrate dev --schema=server/prisma/schema.prisma",
-    "prisma:studio": "bunx prisma studio --schema=server/prisma/schema.prisma"
-  },
-  "dependencies": {
-    "@prisma/adapter-better-sqlite3": "^7.4.2",
-    "@prisma/client": "^7.4.2",
-    "@tailwindcss/vite": "^4.2.1",
-    "axios": "^1.13.6",
-    "better-sqlite3": "^12.6.2",
-    "chart.js": "^4.4.0",
-    "cors": "^2.8.6",
-    "dayjs": "^1.11.10",
-    "express": "^5.2.1",
-    "jspdf": "^2.5.1",
-    "prisma": "^7.4.2",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-hook-form": "^7.71.2",
-    "react-router-dom": "^7.13.1",
-    "xlsx": "^0.18.5"
+    "dev": "concurrently -n api,web -c blue,green \"npm run dev -w apps/api\" \"npm run dev -w apps/web\"",
+    "build": "npm run build -w apps/web",
+    "db:push": "npm run db:push -w apps/api",
+    "db:generate": "npm run db:generate -w apps/api",
+    "db:studio": "npm run db:studio -w apps/api"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.6",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^4.0.0",
-    "autoprefixer": "^10.4.27",
-    "concurrently": "^9.2.1",
-    "postcss": "^8.5.8",
-    "tailwindcss": "^4.2.1",
-    "tsx": "^4.21.0",
-    "typescript": "^5.9.3",
-    "vite": "^5.0.0"
+    "concurrently": "^9.2.1"
   }
 }

@@ -1,4 +1,9 @@
 node_modules
 .env
+apps/api/db/dev.db
+apps/api/db/migrations
+dist
+dist-server
 
-/server/generated/prisma
+# Local git repositories for commit collection
+repos/
