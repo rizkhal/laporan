@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
-import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/Card";
+import { Button } from "../components/ui/Button";
+import { Input } from "../components/ui/Input";
 import { Textarea } from "../components/ui/textarea";
 import { Label } from "../components/ui/label";
 import { Badge } from "../components/ui/badge";
@@ -190,7 +190,7 @@ export default function Repositories() {
               <Label>Category</Label>
               {categories.length > 0 ? (
                 <select
-                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+                  className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-1 text-sm text-foreground shadow-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/25 dark:border-white/[0.09] dark:bg-white/[0.035] dark:shadow-none"
                   value={form.category}
                   onChange={e => setForm({...form, category: e.target.value})}
                 >
@@ -204,14 +204,14 @@ export default function Repositories() {
             </div>
             <div>
               <Label>Author Names (one per line)</Label>
-              <Textarea value={form.authorNames} onChange={e => setForm({...form, authorNames: e.target.value})} placeholder="John Doe&#10;Jane Smith" rows={3} />
+              <Textarea value={form.authorNames} onChange={e => setForm({...form, authorNames: e.target.value})} placeholder="Rina Pratama&#10;Daniel Cho" rows={3} />
             </div>
             <div>
               <Label>Author Emails (one per line)</Label>
-              <Textarea value={form.authorEmails} onChange={e => setForm({...form, authorEmails: e.target.value})} placeholder="john@example.com&#10;jane@example.com" rows={3} />
+              <Textarea value={form.authorEmails} onChange={e => setForm({...form, authorEmails: e.target.value})} placeholder="rina@company.test&#10;daniel@company.test" rows={3} />
             </div>
             <div className="flex items-center gap-2">
-              <input type="checkbox" id="enabled" checked={form.enabled} onChange={e => setForm({...form, enabled: e.target.checked})} className="rounded" />
+              <input type="checkbox" id="enabled" checked={form.enabled} onChange={e => setForm({...form, enabled: e.target.checked})} className="size-4 rounded border-input bg-card" />
               <Label htmlFor="enabled">Enabled</Label>
             </div>
             <div className="flex justify-end gap-2 pt-2">

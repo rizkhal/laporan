@@ -18,9 +18,11 @@ router.post("/:id/collect", async (c) => {
 
   // Determine which repos to collect: specific repoIds or all enabled
   const selectedRepoIds: number[] = collection.repoIds ? JSON.parse(collection.repoIds) : [];
-  let repos;
+  let repos: (typeof schema.repositories.$inferSelect)[];
   if (selectedRepoIds.length > 0) {
-    repos = selectedRepoIds.map(rid => db.select().from(schema.repositories).where(eq(schema.repositories.id, rid)).get()).filter(Boolean);
+    repos = selectedRepoIds
+      .map(rid => db.select().from(schema.repositories).where(eq(schema.repositories.id, rid)).get())
+      .filter((repo): repo is typeof schema.repositories.$inferSelect => Boolean(repo));
   } else {
     repos = db.select().from(schema.repositories).where(eq(schema.repositories.enabled, true as any)).all();
   }

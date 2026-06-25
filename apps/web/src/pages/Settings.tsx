@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
-import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/Card";
+import { Button } from "../components/ui/Button";
+import { Input } from "../components/ui/Input";
 import { Label } from "../components/ui/label";
 import { Badge } from "../components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
@@ -155,7 +155,7 @@ export default function SettingsPage() {
               <Input value={llmForm.model} onChange={e => setLlmForm({...llmForm, model: e.target.value})} placeholder="gpt-4o-mini" />
             </div>
             {testResult && (
-              <div className={`text-sm p-2 rounded ${testResult.startsWith("✓") ? "bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-400" : "bg-destructive/10 text-destructive"}`}>
+              <div className={`rounded-lg border p-3 text-sm ${testResult.startsWith("✓") ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" : "border-destructive/20 bg-destructive/10 text-destructive"}`}>
                 {testResult}
               </div>
             )}

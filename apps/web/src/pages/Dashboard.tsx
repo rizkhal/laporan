@@ -1,179 +1,216 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
-import { Button } from "../components/ui/button";
+import { Button } from "../components/ui/Button";
 import { apiFetch } from "../lib/utils";
-import { GitCommit, GitBranch, FileText, Users, ArrowRight, Plus } from "lucide-react";
+import {
+  ArrowRight, Bot, Check, CircleDashed, FileText, FolderGit2,
+  GitCommit, Plus, Sparkles,
+} from "lucide-react";
 
-interface DashboardStats {
-  totalRepos: number;
-  totalCollections: number;
-  totalCommits: number;
-  latestCollection: { id: number; title: string; year: number; month: number; status: string } | null;
-  perRepoStats: { repoId: number; repoName: string; commits: number; lastCollected: string }[];
+interface Collection {
+  id: number; title: string; year: number; month: number; status: string; createdAt: string;
 }
+interface Repo { id: number; name: string; }
+interface Commit { id: number; repoId: number; }
+interface Analysis { id: number; repoId: number; status: string; workItems: string; updatedAt: string; }
+interface Report { id: number; title: string; updatedAt: string; }
+
+const statusVariant: Record<string, "default" | "secondary" | "success" | "warning"> = {
+  draft: "secondary", collecting: "default", completed: "default",
+  analyzing: "warning", analyzed: "warning", generating: "warning", generated: "success",
+};
 
 export default function Dashboard() {
-  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [repos, setRepos] = useState<Repo[]>([]);
+  const [collections, setCollections] = useState<Collection[]>([]);
+  const [commits, setCommits] = useState<Commit[]>([]);
+  const [analyses, setAnalyses] = useState<Analysis[]>([]);
+  const [report, setReport] = useState<Report | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => { loadStats(); }, []);
-
-  async function loadStats() {
-    try {
-      setLoading(true);
-      setError(null);
-      const [repos, collections] = await Promise.all([
-        apiFetch<any[]>("/repos"),
-        apiFetch<any[]>("/collections"),
-      ]);
-
-      const latestCol = collections.length > 0 ? collections[0] : null;
-      let latestStats = { totalCommits: 0, perRepoStats: [] as any[] };
-
-      if (latestCol) {
-        latestStats = await apiFetch(`/collections/${latestCol.id}/stats`);
+  useEffect(() => {
+    async function load() {
+      try {
+        const [repoData, collectionData] = await Promise.all([
+          apiFetch<Repo[]>("/repos"),
+          apiFetch<Collection[]>("/collections"),
+        ]);
+        setRepos(repoData);
+        setCollections(collectionData);
+        if (collectionData[0]) {
+          const id = collectionData[0].id;
+          const [commitData, analysisData, reportData] = await Promise.all([
+            apiFetch<Commit[]>(`/collections/${id}/commits`).catch(() => []),
+            apiFetch<Analysis[]>(`/analyses/collection/${id}`).catch(() => []),
+            apiFetch<Report>(`/reports/${id}`).catch(() => null),
+          ]);
+          setCommits(commitData);
+          setAnalyses(analysisData);
+          setReport(reportData);
+        }
+      } catch (err: any) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
       }
-
-      setStats({
-        totalRepos: repos.length,
-        totalCollections: collections.length,
-        latestCollection: latestCol ? { id: latestCol.id, title: latestCol.title, year: latestCol.year, month: latestCol.month, status: latestCol.status } : null,
-        totalCommits: latestStats.totalCommits || 0,
-        perRepoStats: [],
-      });
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
     }
-  }
+    load();
+  }, []);
+
+  const workItemCount = useMemo(() => analyses.reduce((total, analysis) => {
+    try { return total + JSON.parse(analysis.workItems || "[]").length; } catch { return total; }
+  }, 0), [analyses]);
+
+  const latest = collections[0];
+  const analysisComplete = analyses.length > 0 && analyses.every((item) => item.status === "completed");
+  const phase = report ? 4 : analysisComplete ? 3 : commits.length ? 2 : 1;
 
   if (loading) {
     return (
-      <div className="space-y-6">
-        <div className="h-8 w-48 bg-muted animate-pulse rounded" />
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          {[1,2,3,4].map(i => <div key={i} className="h-24 bg-muted animate-pulse rounded-xl" />)}
+      <div className="space-y-7">
+        <div className="skeleton h-9 w-64 rounded-lg" />
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {[1, 2, 3, 4].map((item) => <div key={item} className="skeleton h-32 rounded-xl" />)}
         </div>
+        <div className="skeleton h-72 rounded-xl" />
       </div>
     );
   }
 
+  const kpis = [
+    { label: "Tracked repositories", value: repos.length, detail: "active sources", icon: FolderGit2 },
+    { label: "Commits collected", value: commits.length, detail: latest ? `in ${latest.title}` : "no active period", icon: GitCommit },
+    { label: "Work items detected", value: workItemCount, detail: analyses.length ? `across ${analyses.length} analyses` : "analysis pending", icon: Sparkles },
+    { label: "Report status", value: report ? "Ready" : analysisComplete ? "Pending" : "Blocked", detail: report ? "available to export" : "complete the prior phase", icon: FileText },
+  ];
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-8">
+      <section className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-muted-foreground">Overview of your development activity</p>
+          <p className="mb-2 text-sm font-medium text-primary">Engineering operations</p>
+          <h1 className="text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">Monthly activity, at a glance</h1>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+            Collect repository activity, validate AI findings, and publish an executive-ready report.
+          </p>
         </div>
-        <Link to="/collections">
-          <Button><Plus className="h-4 w-4" /> New Collection</Button>
-        </Link>
-      </div>
+        <Button asChild>
+          <Link to="/collections"><Plus className="size-4" /> New collection</Link>
+        </Button>
+      </section>
 
-      {error && (
-        <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 text-destructive text-sm">{error}</div>
-      )}
+      {error && <div className="rounded-xl border border-destructive/20 bg-destructive/8 p-4 text-sm text-destructive">{error}</div>}
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Repositories</CardTitle>
-            <GitBranch className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats?.totalRepos || 0}</div>
-            <p className="text-xs text-muted-foreground">Configured repos</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Collections</CardTitle>
-            <CalendarIcon className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats?.totalCollections || 0}</div>
-            <p className="text-xs text-muted-foreground">Monthly reports</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Latest Commits</CardTitle>
-            <GitCommit className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats?.totalCommits || 0}</div>
-            <p className="text-xs text-muted-foreground">In latest collection</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Authors</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">—</div>
-            <p className="text-xs text-muted-foreground">Unique contributors</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {stats?.latestCollection && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Latest Collection</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-semibold text-lg">{stats.latestCollection.title}</p>
-                <div className="flex items-center gap-2 mt-1">
-                  <Badge variant={stats.latestCollection.status === "generated" ? "success" : stats.latestCollection.status === "analyzed" ? "warning" : "secondary"}>
-                    {stats.latestCollection.status}
-                  </Badge>
-                  <span className="text-sm text-muted-foreground">
-                    {stats.totalCommits} commits collected
-                  </span>
-                </div>
-              </div>
-              <Link to={`/collections/${stats.latestCollection.id}`}>
-                <Button variant="outline">
-                  View Details <ArrowRight className="h-4 w-4 ml-1" />
-                </Button>
-              </Link>
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {kpis.map(({ label, value, detail, icon: Icon }) => (
+          <article key={label} className="surface rounded-xl p-5">
+            <div className="flex items-start justify-between">
+              <p className="text-sm font-medium text-muted-foreground">{label}</p>
+              <span className="grid size-8 place-items-center rounded-lg bg-muted text-muted-foreground"><Icon className="size-4" /></span>
             </div>
-          </CardContent>
-        </Card>
-      )}
+            <p className="mt-5 font-mono text-3xl font-semibold tracking-[-0.04em]">{value}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
+          </article>
+        ))}
+      </section>
 
-      {stats && stats.totalRepos === 0 && (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <GitBranch className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No repositories yet</h3>
-            <p className="text-muted-foreground mb-4">Add your first repository to start collecting commits.</p>
-            <Link to="/repositories">
-              <Button><Plus className="h-4 w-4" /> Add Repository</Button>
+      <section className="grid gap-5 xl:grid-cols-[1.45fr_.75fr]">
+        <div className="surface overflow-hidden rounded-xl">
+          <div className="flex items-center justify-between border-b px-5 py-4">
+            <div>
+              <h2 className="font-semibold tracking-[-0.02em]">Current reporting cycle</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">{latest?.title || "No collection started"}</p>
+            </div>
+            {latest && <Badge variant={statusVariant[latest.status] || "secondary"}>{latest.status}</Badge>}
+          </div>
+
+          <div className="grid gap-0 sm:grid-cols-4">
+            {[
+              { name: "Collection", description: `${commits.length} commits`, icon: GitCommit },
+              { name: "Analysis", description: `${workItemCount} findings`, icon: Bot },
+              { name: "Report", description: report ? "Generated" : "Not generated", icon: FileText },
+              { name: "Complete", description: report ? "Ready to share" : "Awaiting report", icon: Check },
+            ].map((step, index) => {
+              const done = phase > index + 1 || (index === 3 && !!report);
+              const current = phase === index + 1;
+              return (
+                <div key={step.name} className="relative border-b p-5 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0">
+                  <div className={done ? "text-emerald-600 dark:text-emerald-400" : current ? "text-primary" : "text-muted-foreground"}>
+                    {done ? <Check className="size-4" /> : current ? <CircleDashed className="size-4" /> : <step.icon className="size-4" />}
+                  </div>
+                  <p className="mt-4 text-sm font-semibold">{step.name}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{step.description}</p>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-col gap-3 bg-muted/35 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-medium">
+                {!latest ? "Create a collection to begin" : report ? "Review and export the report" : analysisComplete ? "Generate the monthly report" : commits.length ? "Run analysis on collected activity" : "Collect repository activity"}
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">Recommended next action</p>
+            </div>
+            <Button variant="outline" size="sm" asChild>
+              <Link to={latest ? `/collections/${latest.id}` : "/collections"}>
+                Continue <ArrowRight className="size-3.5" />
+              </Link>
+            </Button>
+          </div>
+        </div>
+
+        <aside className="surface rounded-xl p-5">
+          <h2 className="font-semibold tracking-[-0.02em]">Quick actions</h2>
+          <div className="mt-4 space-y-2">
+            {[
+              { label: "Start monthly collection", detail: "Choose period and repositories", href: "/collections", icon: Plus },
+              { label: "Manage repositories", detail: `${repos.length} repositories configured`, href: "/repositories", icon: FolderGit2 },
+              { label: "Configure analysis", detail: "Models and provider settings", href: "/settings", icon: Bot },
+            ].map(({ label, detail, href, icon: Icon }) => (
+              <Link key={label} to={href} className="group flex items-center gap-3 rounded-xl p-3 transition-colors hover:bg-muted">
+                <span className="grid size-9 place-items-center rounded-lg bg-muted text-muted-foreground group-hover:text-foreground"><Icon className="size-4" /></span>
+                <span>
+                  <span className="block text-sm font-medium">{label}</span>
+                  <span className="block text-xs text-muted-foreground">{detail}</span>
+                </span>
+                <ArrowRight className="ml-auto size-3.5 text-muted-foreground" />
+              </Link>
+            ))}
+          </div>
+        </aside>
+      </section>
+
+      <section>
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h2 className="font-semibold tracking-[-0.02em]">Recent collections</h2>
+            <p className="mt-1 text-xs text-muted-foreground">Latest reporting periods and their current phase</p>
+          </div>
+          <Link to="/collections" className="text-sm font-medium text-primary hover:underline">View all</Link>
+        </div>
+        <div className="surface overflow-hidden rounded-xl">
+          {collections.length === 0 ? (
+            <div className="p-10 text-center">
+              <FolderGit2 className="mx-auto size-8 text-muted-foreground/50" />
+              <p className="mt-3 text-sm font-medium">No collections yet</p>
+              <p className="mt-1 text-xs text-muted-foreground">Start the first reporting cycle to populate this workspace.</p>
+            </div>
+          ) : collections.slice(0, 5).map((collection, index) => (
+            <Link key={collection.id} to={`/collections/${collection.id}`} className="flex items-center gap-4 border-b px-5 py-4 transition-colors last:border-b-0 hover:bg-muted/40">
+              <span className="grid size-10 place-items-center rounded-lg bg-muted font-mono text-xs font-semibold">{String(collection.month).padStart(2, "0")}</span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{collection.title}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">Created {new Date(collection.createdAt).toLocaleDateString()}</p>
+              </div>
+              <Badge variant={statusVariant[collection.status] || "secondary"}>{collection.status}</Badge>
+              <ArrowRight className="size-4 text-muted-foreground" />
             </Link>
-          </CardContent>
-        </Card>
-      )}
+          ))}
+        </div>
+      </section>
     </div>
-  );
-}
-
-function CalendarIcon(props: any) {
-  return (
-    <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect width="18" height="18" x="3" y="4" rx="2" ry="2"/>
-      <line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/>
-      <line x1="3" x2="21" y1="10" y2="10"/>
-    </svg>
   );
 }

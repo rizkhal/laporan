@@ -1,13 +1,13 @@
 import { Hono } from "hono";
 import { db } from "../db/index";
 import * as schema from "../db/schema";
-import { eq, desc, asc, and, sql } from "drizzle-orm";
+import { eq, desc, and, sql } from "drizzle-orm";
 import { z } from "zod";
 
 const router = new Hono();
 
 router.get("/", (c) => {
-  const collections = db.select().from(schema.collections).orderBy(desc(schema.collections.year), asc(schema.collections.month)).all();
+  const collections = db.select().from(schema.collections).orderBy(desc(schema.collections.year), desc(schema.collections.month)).all();
   const parsed = collections.map(col => ({
     ...col,
     repoIds: col.repoIds ? JSON.parse(col.repoIds) : null,
