@@ -46,8 +46,7 @@ export default function Collections() {
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [creating, setCreating] = useState(false);
   const [repos, setRepos] = useState<Repo[]>([]);
-  const [selectedRepoIds, setSelectedRepoIds] = useState<number[]>([]);
-  const [selectAll, setSelectAll] = useState(true);
+  const [selectedRepoIds, setSelectedRepoIds] = useState<number[] | null>(null); // null = all repos
 
   useEffect(() => { loadCollections(); loadRepos(); }, []);
 
@@ -74,8 +73,8 @@ export default function Collections() {
     try {
       setCreating(true);
       const body: any = { year, month };
-      // Send repoIds only if specific repos selected
-      if (!selectAll && selectedRepoIds.length > 0) {
+      // null = all repos, array = specific repos
+      if (selectedRepoIds !== null && selectedRepoIds.length > 0) {
         body.repoIds = selectedRepoIds;
       }
       const col = await apiFetch<Collection>("/collections", {
@@ -125,7 +124,7 @@ export default function Collections() {
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
-            <Button onClick={() => { setSelectAll(true); setSelectedRepoIds([]); }}><Plus className="h-4 w-4" /> New Collection</Button>
+            <Button onClick={() => { setSelectedRepoIds(null); }}><Plus className="h-4 w-4" /> New Collection</Button>
           </DialogTrigger>
           <DialogContent className="max-w-md">
             <DialogHeader>
@@ -158,13 +157,10 @@ export default function Collections() {
                       <input
                         type="checkbox"
                         className="rounded"
-                        checked={selectAll}
-                        onChange={() => {
-                          setSelectAll(true);
-                          setSelectedRepoIds([]);
-                        }}
+                        checked={selectedRepoIds === null}
+                        onChange={() => setSelectedRepoIds(null)}
                       />
-                      <span className="font-medium">All Repositories</span>
+                      <span className="font-medium">Semua Repositori</span>
                     </label>
                     <div className="border-t pt-1.5 space-y-1">
                       {repos.map(repo => (
@@ -172,15 +168,20 @@ export default function Collections() {
                           <input
                             type="checkbox"
                             className="rounded"
-                            checked={selectAll || selectedRepoIds.includes(repo.id)}
-                            disabled={selectAll}
+                            checked={selectedRepoIds === null || selectedRepoIds.includes(repo.id)}
                             onChange={() => {
-                              setSelectAll(false);
-                              setSelectedRepoIds(prev =>
-                                prev.includes(repo.id)
-                                  ? prev.filter(r => r !== repo.id)
-                                  : [...prev, repo.id]
-                              );
+                              if (selectedRepoIds === null) {
+                                // Switch from "all" to everything except this one
+                                const allIds = repos.map(r => r.id).filter(id => id !== repo.id);
+                                setSelectedRepoIds(allIds);
+                              } else {
+                                setSelectedRepoIds(prev => {
+                                  const current = prev || [];
+                                  return current.includes(repo.id)
+                                    ? current.filter(r => r !== repo.id)
+                                    : [...current, repo.id];
+                                });
+                              }
                             }}
                           />
                           <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
@@ -199,7 +200,7 @@ export default function Collections() {
 
               <div className="flex justify-end gap-2 pt-2">
                 <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-                <Button onClick={handleCreate} disabled={creating || (!selectAll && selectedRepoIds.length === 0)}>
+                <Button onClick={handleCreate} disabled={creating || (selectedRepoIds !== null && selectedRepoIds.length === 0)}>
                   {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                   Create
                 </Button>
