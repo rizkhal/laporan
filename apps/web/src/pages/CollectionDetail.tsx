@@ -21,7 +21,7 @@ interface Analysis {
   id: number; repoId: number; status: string; workItems: string; category: string;
   summary: string; impact: string; risks: string; nextSuggestions: string; isEdited: boolean; error: string;
 }
-interface Report { id: number; title: string; content: string; isEdited: boolean; updatedAt?: string; }
+interface Report { id: number; title: string; content: string; style?: string; isEdited: boolean; updatedAt?: string; }
 interface Repo { id: number; name: string; category: string; }
 interface LlmProvider { id: number; name: string; model: string; }
 
@@ -49,6 +49,7 @@ export default function CollectionDetail() {
   const [expandedCommit, setExpandedCommit] = useState<number | null>(null);
   const [reportDraft, setReportDraft] = useState("");
   const [reportMode, setReportMode] = useState<"split" | "preview">("split");
+  const [reportStyle, setReportStyle] = useState<string>("office");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<"collect" | "analyze" | "report" | "save" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +74,7 @@ export default function CollectionDetail() {
       setProviders(providerData);
       setReport(reportData);
       setReportDraft(reportData?.content || "");
+      if (reportData?.style) setReportStyle(reportData.style);
       if (!selectedRepo) {
         const firstRepo = collectionData?.repoIds
           ? repoData.find((r) => collectionData.repoIds?.includes(r.id))
@@ -96,7 +98,7 @@ export default function CollectionDetail() {
       setError(null);
       if (action === "collect") await apiFetch(`/collections/${collectionId}/collect`, { method: "POST" });
       if (action === "analyze") await apiFetch(`/collections/${collectionId}/analyze`, { method: "POST", body: JSON.stringify({ llmProviderId: selectedLlmId }) });
-      if (action === "report") await apiFetch(`/reports/${collectionId}/generate`, { method: "POST", body: JSON.stringify({ llmProviderId: selectedLlmId }) });
+      if (action === "report") await apiFetch(`/reports/${collectionId}/generate`, { method: "POST", body: JSON.stringify({ llmProviderId: selectedLlmId, style: reportStyle }) });
       await loadAll();
     } catch (err: any) {
       setError(err.message);
@@ -198,6 +200,11 @@ export default function CollectionDetail() {
           <Button variant="outline" onClick={() => runAction("analyze")} disabled={!!busy || commits.length === 0}>
             {busy === "analyze" ? <Loader2 className="animate-spin" /> : <Sparkles />} Analyze
           </Button>
+          <select value={reportStyle} onChange={(e) => setReportStyle(e.target.value)} className="h-9 rounded-lg border border-input bg-card px-3 text-xs text-foreground shadow-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/25 dark:border-white/[0.09] dark:bg-white/[0.035] dark:shadow-none">
+            <option value="simple">Simple Report</option>
+            <option value="executive">Executive Summary</option>
+            <option value="office">Office Report</option>
+          </select>
           <Button onClick={() => runAction("report")} disabled={!!busy || analyses.length === 0}>
             {busy === "report" ? <Loader2 className="animate-spin" /> : <FileText />} Generate report
           </Button>
@@ -329,9 +336,25 @@ export default function CollectionDetail() {
 
         <TabsContent value="report" className="mt-5">
           {!report ? (
-            <EmptyState icon={FileText} title="Report not generated" description="Generate the report after reviewing the analysis findings.">
-              <Button onClick={() => runAction("report")} disabled={!!busy || analyses.length === 0}>{busy === "report" ? <Loader2 className="animate-spin" /> : <FileText />} Generate report</Button>
-            </EmptyState>
+            <div className="mx-auto max-w-lg space-y-6 py-10">
+              <div className="text-center">
+                <FileText className="mx-auto size-10 text-muted-foreground/30" />
+                <h3 className="mt-4 text-lg font-semibold">Generate a report</h3>
+                <p className="mt-1 text-sm text-muted-foreground">Choose a style, then generate your monthly report.</p>
+              </div>
+              <div className="flex justify-center">
+                <select value={reportStyle} onChange={(e) => setReportStyle(e.target.value)} className="h-9 rounded-lg border border-input bg-card px-3 text-xs text-foreground shadow-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/25 dark:border-white/[0.09] dark:bg-white/[0.035] dark:shadow-none">
+                  <option value="simple">Simple Report</option>
+                  <option value="executive">Executive Summary</option>
+                  <option value="office">Office Report</option>
+                </select>
+              </div>
+              <div className="flex justify-center">
+                <Button onClick={() => runAction("report")} disabled={!!busy || analyses.length === 0} className="min-w-[200px]">
+                  {busy === "report" ? <Loader2 className="animate-spin" /> : <FileText />} Generate report
+                </Button>
+              </div>
+            </div>
           ) : (
             <div className="space-y-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -461,21 +484,108 @@ function EmptyState({ icon: Icon, title, description, children }: { icon: typeof
 
 function renderMarkdown(content: string) {
   const lines = content.split("\n");
-  return lines.map((line, index) => {
-    if (line.startsWith("### ")) return <h3 key={index}>{inlineMarkdown(line.slice(4))}</h3>;
-    if (line.startsWith("## ")) return <h2 key={index}>{inlineMarkdown(line.slice(3))}</h2>;
-    if (line.startsWith("# ")) return <h1 key={index}>{inlineMarkdown(line.slice(2))}</h1>;
-    if (line.startsWith("- ")) return <ul key={index}><li>{inlineMarkdown(line.slice(2))}</li></ul>;
-    if (!line.trim()) return <div key={index} className="h-2" />;
-    return <p key={index}>{inlineMarkdown(line)}</p>;
-  });
+  const elements: React.ReactNode[] = [];
+  let inCodeBlock = false;
+  let codeBlockContent: string[] = [];
+
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
+
+    // Code block toggle
+    if (line.trim().startsWith("```")) {
+      if (inCodeBlock) {
+        elements.push(<pre key={`code-${index}`} className="my-4 overflow-x-auto rounded-xl border bg-muted/50 p-4 font-mono text-[11px] leading-5 dark:bg-black/20"><code>{codeBlockContent.join("\n")}</code></pre>);
+        codeBlockContent = [];
+        inCodeBlock = false;
+        continue;
+      }
+      inCodeBlock = true;
+      continue;
+    }
+    if (inCodeBlock) {
+      codeBlockContent.push(line);
+      continue;
+    }
+
+    // Horizontal rule
+    if (line.trim() === "---") {
+      elements.push(<hr key={index} className="my-6 border-border" />);
+      continue;
+    }
+
+    // Empty line
+    if (!line.trim()) {
+      elements.push(<div key={index} className="h-3" />);
+      continue;
+    }
+
+    // H1 with bold: `# **text**`
+    const h1BoldMatch = line.match(/^# \*\*(.+)\*\*$/);
+    if (h1BoldMatch) {
+      elements.push(<h1 key={index} className="text-center text-2xl font-bold tracking-tight">{inlineMarkdown(h1BoldMatch[1])}</h1>);
+      continue;
+    }
+
+    // H1
+    if (line.startsWith("# ") && !line.startsWith("## ")) {
+      elements.push(<h1 key={index}>{inlineMarkdown(line.slice(2))}</h1>);
+      continue;
+    }
+
+    // H3
+    if (line.startsWith("### ")) {
+      elements.push(<h3 key={index}>{inlineMarkdown(line.slice(4))}</h3>);
+      continue;
+    }
+
+    // H2
+    if (line.startsWith("## ")) {
+      elements.push(<h2 key={index}>{inlineMarkdown(line.slice(3))}</h2>);
+      continue;
+    }
+
+    // Ordered list `1. item` or `a. item` or `i. item`
+    const orderedMatch = line.match(/^(\s*)(\d+|[a-i])\.\s+(.*)$/);
+    if (orderedMatch) {
+      const [, indent, num, text] = orderedMatch;
+      const depth = Math.floor(indent.length / 2);
+      elements.push(
+        <div key={index} className={`flex gap-2 ${depth > 0 ? "ml-6" : ""}`}>
+          <span className="mt-px shrink-0 font-medium text-foreground">{num}.</span>
+          <span>{inlineMarkdown(text)}</span>
+        </div>,
+      );
+      continue;
+    }
+
+    // Unordered list `- text`
+    const unorderedMatch = line.match(/^(\s*)[-*]\s+(.*)$/);
+    if (unorderedMatch) {
+      const [, indent, text] = unorderedMatch;
+      const depth = Math.floor(indent.length / 2);
+      elements.push(
+        <div key={index} className={`flex gap-2 ${depth > 0 ? (depth > 1 ? "ml-12" : "ml-6") : ""}`}>
+          <span className="mt-px shrink-0 text-muted-foreground">{depth > 0 ? "◦" : "•"}</span>
+          <span>{inlineMarkdown(text)}</span>
+        </div>,
+      );
+      continue;
+    }
+
+    // Regular paragraph — but check if it starts with `**` (bold lead-in for nested items)
+    elements.push(<p key={index}>{inlineMarkdown(line)}</p>);
+  }
+
+  return elements;
 }
 
 function inlineMarkdown(text: string) {
-  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+  // Match **bold**, `code`, and _italic_
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|_[^_]+_)/g);
   return parts.map((part, index) => {
     if (part.startsWith("**") && part.endsWith("**")) return <strong key={index}>{part.slice(2, -2)}</strong>;
-    if (part.startsWith("`") && part.endsWith("`")) return <code key={index}>{part.slice(1, -1)}</code>;
+    if (part.startsWith("`") && part.endsWith("`")) return <code key={index} className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">{part.slice(1, -1)}</code>;
+    if (part.startsWith("_") && part.endsWith("_")) return <em key={index}>{part.slice(1, -1)}</em>;
     return part;
   });
 }

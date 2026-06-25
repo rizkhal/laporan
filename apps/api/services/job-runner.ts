@@ -5,6 +5,7 @@ import { cloneRepo, resolveRepoPath, pullRepo, cleanStaleClone } from "./git-clo
 import { collectRepoForCollection } from "./git-collector";
 import { runAnalysisForRepo } from "./llm-analyzer";
 import { generateReport } from "./report-formatter";
+import { getStrategy } from "./report-strategies";
 import { killGitExec } from "./git-exec";
 
 // ── Types ──
@@ -23,6 +24,8 @@ export interface JobPayload {
   collectionId?: number;
   repoId?: number;
   llmProviderId?: number;
+  style?: string;
+  [key: string]: any;
 }
 
 // ── Queue Helpers ──
@@ -468,8 +471,19 @@ async function executeJob(
       updateProgress(10, "Starting report generation...");
       if (!payload.collectionId) throw new Error("Missing collectionId");
 
+      const style = (payload.style as string) || "office";
+
       updateProgress(40, "Compiling report data...");
-      await generateReport(payload.collectionId, job.workspaceId);
+
+      const strategy = getStrategy(style);
+      if (!strategy) {
+        throw new Error(`Unknown report style: "${style}"`);
+      }
+
+      await strategy.generate(
+        payload.collectionId,
+        job.workspaceId,
+      );
 
       updateProgress(100, "Report generated successfully.");
       break;

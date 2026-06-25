@@ -148,8 +148,9 @@ export const reportTemplates = sqliteTable("report_templates", {
 export const reports = sqliteTable("reports", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   collectionId: integer("collection_id").notNull().references(() => collections.id, { onDelete: "cascade" }),
-  templateId: integer("template_id").references(() => reportTemplates.id),
+  templateId: integer("template_id").references(() => reportTemplates.id, { onDelete: "set null" }),
   title: text("title").notNull(),
+  style: text("style").notNull().default("office"),
   content: text("content").notNull(), // Markdown
   isEdited: integer("is_edited", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),

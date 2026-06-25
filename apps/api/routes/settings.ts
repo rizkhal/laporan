@@ -106,12 +106,21 @@ router.post("/llm/test", async (c) => {
       );
     }
 
+    // Try to extract content from response, handling multiple formats
     let content = "";
-    if (rawText.trim().startsWith("data: ") || rawText.includes("chat.completion.chunk")) {
-      for (const line of rawText.trim().split("\n")) {
-        if (line.startsWith("data: ") && !line.includes("[DONE]")) {
+
+    // 1. Try regular JSON parse first (most reliable)
+    try {
+      const data = JSON.parse(rawText);
+      content = data.choices?.[0]?.message?.content || "";
+    } catch {
+      // 2. Try SSE streaming format (data: {...} lines)
+      const lines = rawText.trim().split("\n");
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith("data: ") && !trimmed.includes("[DONE]")) {
           try {
-            const chunk = JSON.parse(line.replace(/^data: /, ""));
+            const chunk = JSON.parse(trimmed.replace(/^data: /, ""));
             const delta = chunk.choices?.[0]?.delta;
             if (delta?.content) {
               content += delta.content;
@@ -119,9 +128,10 @@ router.post("/llm/test", async (c) => {
           } catch {}
         }
       }
-    } else {
-      const data = JSON.parse(rawText);
-      content = data.choices?.[0]?.message?.content || "";
+      // If SSE parsing didn't yield content, use raw text
+      if (!content) {
+        content = rawText.slice(0, 500);
+      }
     }
 
     return c.json({ success: true, content: content.trim() });

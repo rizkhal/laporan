@@ -112,10 +112,14 @@ router.post("/:id/generate-report", async (c) => {
   const collection = db.select().from(schema.collections).where(eq(schema.collections.id, id)).get();
   assertOwnership(collection, ctx.workspace.id, "Collection");
 
+  const body = await c.req.json().catch(() => ({}));
+  const style = body.style || "office";
+
   db.update(schema.collections).set({ status: "generating" }).where(eq(schema.collections.id, id)).run();
 
   const job = createJob(ctx.workspace.id, "generate_report", {
     collectionId: id,
+    style,
   });
 
   return c.json({ success: true, jobId: job.id });
