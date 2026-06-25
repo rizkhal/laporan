@@ -337,32 +337,43 @@ export default function CollectionDetail() {
               <Card>
                 <CardHeader><CardTitle>Work Items</CardTitle></CardHeader>
                 <CardContent className="space-y-3">
-                  {JSON.parse(repoAnalysis.workItems || "[]").map((item: any, i: number) => (
-                    <div key={i} className="p-3 border rounded-lg">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <p className="font-semibold text-sm">{item.title}</p>
-                          <p className="text-xs text-muted-foreground mt-1">{item.description}</p>
+                  {(JSON.parse(repoAnalysis.workItems || "[]")).map((item: any, i: number) => {
+                    // Handle both Indonesian (from LLM) and English field names
+                    const judul = item.judul || item.title || '';
+                    const deskripsi = item.deskripsi || item.description || '';
+                    const dampak = item.dampak || item.impact || 'rendah';
+                    const keyakinan = item.keyakinan || item.confidence || 'sedang';
+                    const kategori = item.kategori || item.category || 'other';
+                    const bukti = item.bukti || item.evidence || [];
+                    const dampakVariant = dampak === 'tinggi' ? 'destructive' : dampak === 'sedang' ? 'warning' : 'secondary';
+                    const keyakinanVariant = keyakinan === 'tinggi' ? 'success' : 'secondary';
+                    return (
+                      <div key={i} className="p-3 border rounded-lg">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <p className="font-semibold text-sm">{judul}</p>
+                            <p className="text-xs text-muted-foreground mt-1">{deskripsi}</p>
+                          </div>
+                          <div className="flex gap-1 shrink-0">
+                            <Badge variant={dampakVariant}>{dampak}</Badge>
+                            <Badge variant={keyakinanVariant}>{keyakinan}</Badge>
+                          </div>
                         </div>
-                        <div className="flex gap-1 shrink-0">
-                          <Badge variant={item.impact === "high" ? "destructive" : item.impact === "medium" ? "warning" : "secondary"}>{item.impact}</Badge>
-                          <Badge variant={item.confidence === "high" ? "success" : "secondary"}>{item.confidence}</Badge>
+                        <div className="mt-2 text-xs text-muted-foreground">
+                          <span className="font-medium">Kategori:</span> {kategori}
                         </div>
+                        {bukti.length > 0 && (
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {bukti.map((ev: any, j: number) => (
+                              <Badge key={j} variant="outline" className="text-xs font-mono">
+                                {(ev.hashCommit || ev.commitHash || '').slice(0,7)}: {ev.berkas || ev.file || ''}
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                      <div className="mt-2 text-xs text-muted-foreground">
-                        <span className="font-medium">Category:</span> {item.category}
-                      </div>
-                      {item.evidence && item.evidence.length > 0 && (
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          {item.evidence.map((ev: any, j: number) => (
-                            <Badge key={j} variant="outline" className="text-xs font-mono">
-                              {ev.commitHash?.slice(0,7)}: {ev.file}
-                            </Badge>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </CardContent>
               </Card>
 
