@@ -3,8 +3,14 @@ import { db } from "../db/index";
 import * as schema from "../db/schema";
 import { eq, inArray, and } from "drizzle-orm";
 import { z } from "zod";
-import { requireUser, assertOwnership, slugify } from "../lib/auth";
+import { requireUser, requireAuth, assertOwnership, slugify } from "../lib/auth";
 import { HTTPException } from "hono/http-exception";
+import {
+  generateSshKey,
+  getFingerprint,
+  testGitHubConnection,
+  deleteSshKeyFiles,
+} from "../services/ssh-key";
 
 const router = new Hono();
 
@@ -246,14 +252,15 @@ router.get("/:id/ssh-key", (c) => {
 
   return c.json({
     id: key.id,
-    label: key.label,
+    name: key.name,
     publicKey: key.publicKey,
+    fingerprint: key.fingerprint,
     createdAt: key.createdAt,
   });
 });
 
-// Save SSH key for workspace
-router.put("/:id/ssh-key", async (c) => {
+// Generate new SSH key for workspace
+router.post("/:id/ssh-key/generate", async (c) => {
   const { user } = requireUser(c);
   const workspaceId = parseInt(c.req.param("id"));
 
@@ -268,39 +275,113 @@ router.put("/:id/ssh-key", async (c) => {
     throw new HTTPException(403, { message: "Insufficient permissions" });
   }
 
-  const body = await c.req.json();
+  const body = await c.req.json().catch(() => ({}));
   const parsed = z.object({
-    label: z.string().optional().default("default"),
-    privateKey: z.string().min(1),
-    publicKey: z.string().optional().nullable(),
+    name: z.string().optional().default("default"),
   }).parse(body);
 
-  const existing = db
+  try {
+    // Generate the key pair and store on disk
+    const { publicKey, fingerprint } = generateSshKey(workspaceId);
+
+    // Delete existing SSH key record if any
+    const existing = db
+      .select()
+      .from(schema.sshKeys)
+      .where(eq(schema.sshKeys.workspaceId, workspaceId))
+      .get();
+
+    if (existing) {
+      db.update(schema.sshKeys)
+        .set({
+          name: parsed.name,
+          fingerprint,
+          publicKey,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(schema.sshKeys.id, existing.id))
+        .run();
+    } else {
+      db.insert(schema.sshKeys).values({
+        workspaceId,
+        name: parsed.name,
+        fingerprint,
+        privateKey: "", // Key stored on disk, not in DB
+        publicKey,
+      }).run();
+    }
+
+    return c.json({
+      success: true,
+      name: parsed.name,
+      publicKey,
+      fingerprint,
+    });
+  } catch (err: any) {
+    // Clean up files on failure
+    deleteSshKeyFiles(workspaceId);
+    return c.json({ error: err.message || "Failed to generate SSH key" }, 500);
+  }
+});
+
+// Delete SSH key for workspace
+router.delete("/:id/ssh-key", async (c) => {
+  const { user } = requireUser(c);
+  const workspaceId = parseInt(c.req.param("id"));
+
+  // Only owner/admin can manage SSH keys
+  const membership = db
+    .select()
+    .from(schema.workspaceMembers)
+    .where(and(eq(schema.workspaceMembers.workspaceId, workspaceId), eq(schema.workspaceMembers.userId, user.id)))
+    .get();
+
+  if (!membership || (membership.role !== "owner" && membership.role !== "admin")) {
+    throw new HTTPException(403, { message: "Insufficient permissions" });
+  }
+
+  // Delete from database
+  db.delete(schema.sshKeys).where(eq(schema.sshKeys.workspaceId, workspaceId)).run();
+
+  // Delete key files from disk
+  deleteSshKeyFiles(workspaceId);
+
+  return c.json({ success: true });
+});
+
+// Test GitHub connection using workspace SSH key
+router.post("/:id/ssh-key/test-github", async (c) => {
+  const { user } = requireUser(c);
+  const workspaceId = parseInt(c.req.param("id"));
+
+  // User must be a member
+  const membership = db
+    .select()
+    .from(schema.workspaceMembers)
+    .where(and(eq(schema.workspaceMembers.workspaceId, workspaceId), eq(schema.workspaceMembers.userId, user.id)))
+    .get();
+
+  if (!membership) {
+    throw new HTTPException(403, { message: "Access denied" });
+  }
+
+  // Check if key exists
+  const key = db
     .select()
     .from(schema.sshKeys)
     .where(eq(schema.sshKeys.workspaceId, workspaceId))
     .get();
 
-  if (existing) {
-    db.update(schema.sshKeys)
-      .set({
-        label: parsed.label,
-        privateKey: parsed.privateKey,
-        publicKey: parsed.publicKey || null,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(schema.sshKeys.id, existing.id))
-      .run();
-  } else {
-    db.insert(schema.sshKeys).values({
-      workspaceId,
-      label: parsed.label,
-      privateKey: parsed.privateKey,
-      publicKey: parsed.publicKey || null,
-    }).run();
+  if (!key) {
+    return c.json({
+      success: false,
+      message: "No SSH key found for this workspace. Generate an SSH key first.",
+      details: "",
+    });
   }
 
-  return c.json({ success: true });
+  const result = testGitHubConnection(workspaceId);
+  return c.json(result);
 });
 
 export { router as workspacesRouter };

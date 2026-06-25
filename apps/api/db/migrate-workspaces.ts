@@ -168,6 +168,7 @@ export function runMigration(): void {
           console.log(`  ⚠️ Could not migrate ${table.name}: ${err.message}`);
         }
       }
+
     }
 
     // 7. Recreate categories table without old unique constraint on name
@@ -196,19 +197,53 @@ export function runMigration(): void {
     } catch (err: any) {
       console.log(`  ⚠️ Categories migration skipped: ${err.message}`);
     }
+    // 8. Add fingerprint column to ssh_keys table
+    try {
+      const sshKeyCols = sqlite!.prepare("PRAGMA table_info(ssh_keys)").all() as any[];
+      const hasFingerprint = sshKeyCols.some((c: any) => c.name === "fingerprint");
+      if (!hasFingerprint) {
+        sqlite!.exec("ALTER TABLE ssh_keys ADD COLUMN fingerprint TEXT;");
+        console.log("  → Added fingerprint column to ssh_keys");
+      }
+    } catch (err: any) {
+      console.log(`  ⚠️ SSH keys fingerprint migration skipped: ${err.message}`);
+    }
+    // 9. Rename label column to name in ssh_keys table
+    try {
+      const sshKeyCols2 = sqlite!.prepare("PRAGMA table_info(ssh_keys)").all() as any[];
+      const hasLabel = sshKeyCols2.some((c: any) => c.name === "label");
+      const hasName2 = sshKeyCols2.some((c: any) => c.name === "name");
+      if (hasLabel && !hasName2) {
+        sqlite!.exec("ALTER TABLE ssh_keys RENAME COLUMN label TO name;");
+        console.log("  → Renamed label column to name in ssh_keys");
+      }
+    } catch (err: any) {
+      console.log(`  ⚠️ SSH keys column rename skipped: ${err.message}`);
+    }
+
+    // 10. Add remote_url column to repositories
+    try {
+      const repoCols = sqlite!.prepare("PRAGMA table_info(repositories)").all() as any[];
+      const hasRemoteUrl = repoCols.some((c: any) => c.name === "remote_url");
+      if (!hasRemoteUrl) {
+        sqlite!.exec("ALTER TABLE repositories ADD COLUMN remote_url TEXT NOT NULL DEFAULT '';");
+        console.log("  → Added remote_url column to repositories");
+      }
+    } catch (err: any) {
+      console.log(`  ⚠️ Repositories remote_url migration skipped: ${err.message}`);
+    }
 
     console.log("✅ Workspace migration check complete");
-  } catch (err: any) {
-    console.error("❌ Workspace migration error:", err.message);
-  } finally {
-    if (sqlite) {
-      sqlite.pragma("foreign_keys = ON");
-      sqlite.close();
-    }
+} catch (err: any) {
+  console.error("❌ Workspace migration error:", err.message);
+} finally {
+  if (sqlite) {
+    sqlite.pragma("foreign_keys = ON");
+    sqlite.close();
   }
 }
-
+}
 const isMain = process.argv[1]?.includes("migrate-workspaces");
 if (isMain) {
-  runMigration();
+runMigration();
 }

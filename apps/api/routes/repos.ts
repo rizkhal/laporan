@@ -4,12 +4,14 @@ import * as schema from "../db/schema";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { requireAuth, assertOwnership } from "../lib/auth";
+import { testRepoConnection } from "../services/ssh-key";
+import { cloneRepo, ensureRepoCloned, pullRepo, resolveRepoPath } from "../services/git-clone";
 
 const router = new Hono();
 
 const repoPayload = z.object({
   name: z.string().min(1),
-  localPath: z.string().min(1),
+  remoteUrl: z.string().min(1),
   category: z.string().optional().default("general"),
   enabled: z.boolean().optional().default(true),
   authorNames: z.array(z.string()).optional().default([]),
@@ -27,15 +29,24 @@ router.get("/", (c) => {
   return c.json(repos);
 });
 
-// Create repo
+// Create repo — clones the repo automatically
 router.post("/", async (c) => {
   const ctx = requireAuth(c);
   const body = await c.req.json();
   const parsed = repoPayload.parse(body);
+
+  // Clone the repository using workspace SSH key
+  const localPath = resolveRepoPath(ctx.workspace.id, parsed.name);
+  const cloneResult = cloneRepo(ctx.workspace.id, parsed.remoteUrl, parsed.name);
+  if (!cloneResult.success) {
+    return c.json({ error: cloneResult.message }, 400);
+  }
+
   const result = db.insert(schema.repositories).values({
     workspaceId: ctx.workspace.id,
     name: parsed.name,
-    localPath: parsed.localPath,
+    localPath,
+    remoteUrl: parsed.remoteUrl,
     category: parsed.category,
     enabled: parsed.enabled,
     authorNames: JSON.stringify(parsed.authorNames),
@@ -54,8 +65,27 @@ router.put("/:id", async (c) => {
   const body = await c.req.json();
   const parsed = repoPayload.partial().parse(body);
   const updateData: any = { updatedAt: new Date().toISOString() };
-  if (parsed.name !== undefined) updateData.name = parsed.name;
-  if (parsed.localPath !== undefined) updateData.localPath = parsed.localPath;
+  if (parsed.name !== undefined) {
+    updateData.name = parsed.name;
+    // Re-clone if name changed (new local path)
+    if (parsed.name !== repo.name) {
+      const newLocalPath = resolveRepoPath(ctx.workspace.id, parsed.name);
+      const cloneResult = cloneRepo(ctx.workspace.id, repo.remoteUrl, parsed.name);
+      if (!cloneResult.success) {
+        return c.json({ error: cloneResult.message }, 400);
+      }
+      updateData.localPath = newLocalPath;
+    }
+  }
+  if (parsed.remoteUrl !== undefined) {
+    updateData.remoteUrl = parsed.remoteUrl;
+    // Re-clone on URL change
+    const cloneResult = cloneRepo(ctx.workspace.id, parsed.remoteUrl, parsed.name || repo.name);
+    if (!cloneResult.success) {
+      return c.json({ error: cloneResult.message }, 400);
+    }
+    updateData.localPath = resolveRepoPath(ctx.workspace.id, parsed.name || repo.name);
+  }
   if (parsed.category !== undefined) updateData.category = parsed.category;
   if (parsed.enabled !== undefined) updateData.enabled = parsed.enabled;
   if (parsed.authorNames !== undefined) updateData.authorNames = JSON.stringify(parsed.authorNames);
@@ -75,6 +105,28 @@ router.delete("/:id", (c) => {
 
   db.delete(schema.repositories).where(eq(schema.repositories.id, id)).run();
   return c.json({ success: true });
+});
+
+// Refresh (git pull) repository
+router.post("/:id/refresh", (c) => {
+  const ctx = requireAuth(c);
+  const id = parseInt(c.req.param("id"));
+  const repo = db.select().from(schema.repositories).where(eq(schema.repositories.id, id)).get();
+  assertOwnership(repo, ctx.workspace.id, "Repository");
+
+  const result = pullRepo(ctx.workspace.id, repo.localPath);
+  return c.json(result);
+});
+
+// Test repository connection using workspace SSH key (uses remoteUrl)
+router.post("/:id/test-connection", (c) => {
+  const ctx = requireAuth(c);
+  const id = parseInt(c.req.param("id"));
+  const repo = db.select().from(schema.repositories).where(eq(schema.repositories.id, id)).get();
+  assertOwnership(repo, ctx.workspace.id, "Repository");
+
+  const result = testRepoConnection(ctx.workspace.id, repo.remoteUrl);
+  return c.json(result);
 });
 
 export { router as reposRouter };

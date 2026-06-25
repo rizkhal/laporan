@@ -7,12 +7,13 @@ import { Label } from "../components/ui/label";
 import { Badge } from "../components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { apiFetch } from "../lib/utils";
-import { Plus, Pencil, Trash2, GitBranch } from "lucide-react";
+import { Plus, Pencil, Trash2, GitBranch, Link, Loader2, Check, X, RefreshCw } from "lucide-react";
 
 interface Repo {
   id: number;
   name: string;
   localPath: string;
+  remoteUrl: string;
   category: string;
   enabled: boolean;
   authorNames: string;
@@ -30,9 +31,14 @@ export default function Repositories() {
   const [error, setError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingRepo, setEditingRepo] = useState<Repo | null>(null);
-  const [form, setForm] = useState({ name: "", localPath: "", category: "general", enabled: true, authorNames: "", authorEmails: "" });
+  const [form, setForm] = useState({ name: "", remoteUrl: "", category: "general", enabled: true, authorNames: "", authorEmails: "" });
   const [saving, setSaving] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
+
+  // Test connection state
+  const [testingId, setTestingId] = useState<number | null>(null);
+  const [refreshingId, setRefreshingId] = useState<number | null>(null);
+  const [testResults, setTestResults] = useState<Record<number, { success: boolean; message: string }>>({});
 
   useEffect(() => { loadRepos(); loadCategories(); }, []);
 
@@ -54,7 +60,7 @@ export default function Repositories() {
 
   function openCreate() {
     setEditingRepo(null);
-    setForm({ name: "", localPath: "", category: "general", enabled: true, authorNames: "", authorEmails: "" });
+    setForm({ name: "", remoteUrl: "", category: "general", enabled: true, authorNames: "", authorEmails: "" });
     setDialogOpen(true);
   }
 
@@ -62,7 +68,7 @@ export default function Repositories() {
     setEditingRepo(repo);
     setForm({
       name: repo.name,
-      localPath: repo.localPath,
+      remoteUrl: repo.remoteUrl,
       category: repo.category,
       enabled: repo.enabled,
       authorNames: JSON.parse(repo.authorNames || "[]").join("\n"),
@@ -76,7 +82,7 @@ export default function Repositories() {
       setSaving(true);
       const body = {
         name: form.name,
-        localPath: form.localPath,
+        remoteUrl: form.remoteUrl,
         category: form.category,
         enabled: form.enabled,
         authorNames: form.authorNames.split("\n").map(s => s.trim()).filter(Boolean),
@@ -105,6 +111,33 @@ export default function Repositories() {
       setRepos(repos.filter(r => r.id !== id));
     } catch (err: any) {
       setError(err.message);
+    }
+  }
+
+  async function handleRefresh(id: number) {
+    setRefreshingId(id);
+    try {
+      const result = await apiFetch<{ success: boolean; message: string }>(`/repos/${id}/refresh`, { method: "POST" });
+      if (!result.success) {
+        setError(result.message);
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setRefreshingId(null);
+    }
+  }
+
+  async function handleTestConnection(id: number) {
+    setTestingId(id);
+    setTestResults(prev => ({ ...prev, [id]: { success: false, message: "Testing..." } }));
+    try {
+      const result = await apiFetch<{ success: boolean; message: string; defaultBranch?: string }>(`/repos/${id}/test-connection`, { method: "POST" });
+      setTestResults(prev => ({ ...prev, [id]: result }));
+    } catch (err: any) {
+      setTestResults(prev => ({ ...prev, [id]: { success: false, message: err.message } }));
+    } finally {
+      setTestingId(null);
     }
   }
 
@@ -152,10 +185,26 @@ export default function Repositories() {
                       <Badge variant={repo.enabled ? "success" : "secondary"}>
                         {repo.enabled ? "Enabled" : "Disabled"}
                       </Badge>
+                      {testResults[repo.id] && (
+                        <Badge variant={testResults[repo.id].success ? "success" : "destructive"} className="text-[10px]">
+                          {testResults[repo.id].success ? <Check className="size-2.5 mr-0.5" /> : <X className="size-2.5 mr-0.5" />}
+                          {testResults[repo.id].success ? "Connected" : "Failed"}
+                        </Badge>
+                      )}
                     </CardTitle>
-                    <p className="text-sm text-muted-foreground mt-1 font-mono">{repo.localPath}</p>
+                    <p className="text-sm text-muted-foreground mt-1 font-mono">{repo.remoteUrl}</p>
+                    <p className="text-xs text-muted-foreground/60 mt-0.5 font-mono">{repo.localPath}</p>
+                    {testResults[repo.id] && !testResults[repo.id].success && (
+                      <p className="text-xs text-destructive mt-1">{testResults[repo.id].message}</p>
+                    )}
                   </div>
                   <div className="flex gap-1">
+                    <Button variant="ghost" size="icon" onClick={() => handleRefresh(repo.id)} disabled={refreshingId === repo.id} title="Pull latest">
+                      <RefreshCw className={`h-4 w-4 ${refreshingId === repo.id ? 'animate-spin' : ''}`} />
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={() => handleTestConnection(repo.id)} disabled={testingId === repo.id} title="Test connection">
+                      {testingId === repo.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link className="h-4 w-4" />}
+                    </Button>
                     <Button variant="ghost" size="icon" onClick={() => openEdit(repo)}><Pencil className="h-4 w-4" /></Button>
                     <Button variant="ghost" size="icon" onClick={() => handleDelete(repo.id)}><Trash2 className="h-4 w-4" /></Button>
                   </div>
@@ -183,8 +232,8 @@ export default function Repositories() {
               <Input value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="e.g., frontend-app" />
             </div>
             <div>
-              <Label>Local Path</Label>
-              <Input value={form.localPath} onChange={e => setForm({...form, localPath: e.target.value})} placeholder="/path/to/repo" />
+              <Label>Git SSH URL</Label>
+              <Input value={form.remoteUrl} onChange={e => setForm({...form, remoteUrl: e.target.value})} placeholder="git@github.com:owner/repo.git" />
             </div>
             <div>
               <Label>Category</Label>
@@ -216,7 +265,7 @@ export default function Repositories() {
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-              <Button onClick={handleSave} disabled={saving || !form.name || !form.localPath}>
+              <Button onClick={handleSave} disabled={saving || !form.name || !form.remoteUrl}>
                 {saving ? "Saving..." : editingRepo ? "Update" : "Create"}
               </Button>
             </div>

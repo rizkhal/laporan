@@ -43,7 +43,8 @@ export const workspaceMembers = sqliteTable("workspace_members", {
 export const sshKeys = sqliteTable("ssh_keys", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   workspaceId: integer("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-  label: text("label").notNull().default("default"),
+  name: text("name").notNull().default("default"),
+  fingerprint: text("fingerprint"),
   privateKey: text("private_key").notNull(),
   publicKey: text("public_key"),
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
@@ -56,6 +57,7 @@ export const repositories = sqliteTable("repositories", {
   workspaceId: integer("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   localPath: text("local_path").notNull(),
+  remoteUrl: text("remote_url").notNull(),
   category: text("category").notNull().default("general"),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   authorNames: text("author_names").notNull(), // JSON array

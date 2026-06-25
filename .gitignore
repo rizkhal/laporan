@@ -7,5 +7,8 @@ apps/api/db/migrations
 dist
 dist-server
 
-# Local git repositories for commit collection
-repos/
+# SSH key storage
+.storage/
+*.pem
+id_ed25519
+id_ed25519.pub

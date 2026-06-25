@@ -1,7 +1,10 @@
 import { spawnSync } from "child_process";
+import { existsSync } from "fs";
 import { db } from "../db/index";
 import * as schema from "../db/schema";
 import { eq, and } from "drizzle-orm";
+import { getKeyFilePaths, buildGitSshCommandLenient } from "./ssh-key";
+import { pullRepo } from "./git-clone";
 
 const NOISY_FILES = [
   "package-lock.json",
@@ -49,6 +52,40 @@ function runGit(cwd: string, args: string[], bufferSize = 100): string {
   }
 }
 
+/**
+ * Run git with optional workspace SSH key environment.
+ * If workspaceId is provided, loads the workspace SSH key and sets GIT_SSH_COMMAND.
+ */
+function runGitWithSsh(cwd: string, args: string[], workspaceId?: number, bufferSize = 100): string {
+  try {
+    const env: Record<string, string | undefined> = { ...process.env as any };
+
+    if (workspaceId) {
+      try {
+        const files = getKeyFilePaths(workspaceId);
+        if (existsSync(files.privateKeyPath)) {
+          env.GIT_SSH_COMMAND = buildGitSshCommandLenient(workspaceId);
+        }
+      } catch {}
+    }
+
+    const result = spawnSync("git", args, {
+      cwd,
+      encoding: "utf-8",
+      maxBuffer: bufferSize * 1024 * 1024,
+      env,
+    });
+    if (result.error) throw result.error;
+    if (result.status !== 0) {
+      throw new Error(result.stderr?.trim() || `git exited with code ${result.status}`);
+    }
+    return result.stdout || "";
+  } catch (err: any) {
+    console.error(`[git] ERROR: ${err.message.slice(0, 300)}`);
+    throw err;
+  }
+}
+
 interface RawCommit {
   hash: string;
   authorName: string;
@@ -77,6 +114,7 @@ function getCommitsInRange(
   until: string,
   authors: string[],
   emails: string[],
+  workspaceId?: number,
 ): RawCommit[] {
   const args = [
     "log",
@@ -89,7 +127,7 @@ function getCommitsInRange(
     ...emails.map((e) => `--author=${e}`),
   ];
 
-  const output = runGit(repoPath, args);
+  const output = runGitWithSsh(repoPath, args, workspaceId);
 
   if (!output.trim()) return [];
 
@@ -112,20 +150,21 @@ function getCommitsInRange(
 function getCommitFileStats(
   repoPath: string,
   hash: string,
+  workspaceId?: number,
 ): {
   filesChanged: number;
   insertions: number;
   deletions: number;
   fileStats: { file: string; insertions: number; deletions: number }[];
 } {
-  const output = runGit(repoPath, [
+  const output = runGitWithSsh(repoPath, [
     "diff-tree",
     "--no-commit-id",
     "-r",
     "-c",
     "--numstat",
     hash,
-  ]);
+  ], workspaceId);
 
   let filesChanged = 0;
   let insertions = 0;
@@ -155,8 +194,9 @@ function getCommitPatchSnippets(
   repoPath: string,
   hash: string,
   maxFiles = 20,
+  workspaceId?: number,
 ): { file: string; patch: string }[] {
-  const output = runGit(repoPath, ["show", "--no-color", "--format=", hash]);
+  const output = runGitWithSsh(repoPath, ["show", "--no-color", "--format=", hash], workspaceId);
 
   const snippets: { file: string; patch: string }[] = [];
   const blocks = output.split("diff --git ");
@@ -186,6 +226,7 @@ export async function collectCommits(
   month: number,
   authorNames: string[],
   authorEmails: string[],
+  workspaceId?: number,
   onProgress?: (hash: string, idx: number, total: number) => void,
 ): Promise<CollectedCommit[]> {
   const since = `${year}-${String(month).padStart(2, "0")}-01`;
@@ -195,7 +236,7 @@ export async function collectCommits(
 
   // Verify git repo
   try {
-    runGit(repoPath, ["rev-parse", "--git-dir"]);
+    runGitWithSsh(repoPath, ["rev-parse", "--git-dir"], workspaceId);
   } catch {
     throw new Error(`Invalid git repository: ${repoPath}`);
   }
@@ -206,6 +247,7 @@ export async function collectCommits(
     until,
     authorNames,
     authorEmails,
+    workspaceId,
   );
   const collected: CollectedCommit[] = [];
 
@@ -213,8 +255,8 @@ export async function collectCommits(
     const rc = rawCommits[i];
     if (onProgress) onProgress(rc.hash, i, rawCommits.length);
 
-    const stats = getCommitFileStats(repoPath, rc.hash);
-    const patches = getCommitPatchSnippets(repoPath, rc.hash);
+    const stats = getCommitFileStats(repoPath, rc.hash, workspaceId);
+    const patches = getCommitPatchSnippets(repoPath, rc.hash, 20, workspaceId);
 
     collected.push({
       hash: rc.hash,
@@ -266,12 +308,23 @@ export async function collectRepoForCollection(
     )
     .run();
 
+  // Ensure repo is up-to-date before collecting
+  try {
+    const pullResult = pullRepo(workspaceId, repo.localPath);
+    if (!pullResult.success) {
+      console.warn(`[git-collector] Pull warning for ${repo.name}: ${pullResult.message}`);
+    }
+  } catch (err: any) {
+    console.warn(`[git-collector] Pull failed for ${repo.name}: ${err.message}`);
+  }
+
   const commits = await collectCommits(
     repo.localPath,
     collection.year,
     collection.month,
     authorNames,
     authorEmails,
+    workspaceId,
   );
 
   for (const c of commits) {
