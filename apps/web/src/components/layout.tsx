@@ -1,13 +1,14 @@
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "../lib/utils";
 import {
-  LayoutDashboard, GitBranch, Calendar, Settings, FileText,
+  LayoutDashboard, GitBranch, Calendar, Settings, FileText, FolderTree,
 } from "lucide-react";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/repositories", label: "Repositories", icon: GitBranch },
   { href: "/collections", label: "Collections", icon: Calendar },
+  { href: "/categories", label: "Categories", icon: FolderTree },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

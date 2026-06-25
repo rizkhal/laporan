@@ -6,7 +6,7 @@ import { Label } from "../components/ui/label";
 import { Badge } from "../components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { apiFetch } from "../lib/utils";
-import { Plus, Pencil, Trash2, Loader2, Bot, FolderTree } from "lucide-react";
+import { Plus, Pencil, Trash2, Loader2, Bot } from "lucide-react";
 
 interface LLMProvider {
   id: number;
@@ -16,13 +16,7 @@ interface LLMProvider {
   model: string;
 }
 
-interface Category {
-  id: number;
-  name: string;
-}
-
 export default function SettingsPage() {
-  // LLM state
   const [providers, setProviders] = useState<LLMProvider[]>([]);
   const [llmDialogOpen, setLlmDialogOpen] = useState(false);
   const [editingLlm, setEditingLlm] = useState<LLMProvider | null>(null);
@@ -30,19 +24,11 @@ export default function SettingsPage() {
   const [savingLlm, setSavingLlm] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
 
-  // Category state
-  const [cats, setCats] = useState<Category[]>([]);
-  const [catDialogOpen, setCatDialogOpen] = useState(false);
-  const [editingCat, setEditingCat] = useState<Category | null>(null);
-  const [catForm, setCatForm] = useState({ name: "" });
-  const [savingCat, setSavingCat] = useState(false);
-
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => { Promise.all([loadProviders(), loadCats()]).then(() => setLoading(false)); }, []);
+  useEffect(() => { loadProviders().then(() => setLoading(false)); }, []);
 
-  // ── LLM ──
   async function loadProviders() {
     const data = await apiFetch<LLMProvider[]>("/settings/llm");
     setProviders(data);
@@ -91,41 +77,6 @@ export default function SettingsPage() {
     }
   }
 
-  // ── Categories ──
-  async function loadCats() {
-    const data = await apiFetch<Category[]>("/categories");
-    setCats(data);
-  }
-
-  function openCatForm(cat?: Category) {
-    setEditingCat(cat || null);
-    setCatForm(cat ? { name: cat.name } : { name: "" });
-    setCatDialogOpen(true);
-  }
-
-  async function handleSaveCat() {
-    try {
-      setSavingCat(true);
-      if (editingCat) {
-        await apiFetch(`/categories/${editingCat.id}`, { method: "PUT", body: JSON.stringify(catForm) });
-      } else {
-        await apiFetch("/categories", { method: "POST", body: JSON.stringify(catForm) });
-      }
-      await loadCats();
-      setCatDialogOpen(false);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setSavingCat(false);
-    }
-  }
-
-  async function handleDeleteCat(id: number) {
-    if (!confirm("Delete this category?")) return;
-    await apiFetch(`/categories/${id}`, { method: "DELETE" });
-    await loadCats();
-  }
-
   if (loading) {
     return (
       <div className="space-y-4">
@@ -139,14 +90,13 @@ export default function SettingsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
-        <p className="text-muted-foreground">Manage LLM providers and categories</p>
+        <p className="text-muted-foreground">Manage LLM providers</p>
       </div>
 
       {error && (
         <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 text-destructive text-sm">{error}</div>
       )}
 
-      {/* LLM Providers */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -182,39 +132,6 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Categories */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <FolderTree className="h-4 w-4" />
-              Categories
-            </CardTitle>
-            <Button size="sm" onClick={() => openCatForm()}><Plus className="h-3 w-3" /> Add Category</Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {cats.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">No categories yet. Add some to organize repositories.</p>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {cats.map(c => (
-                <div key={c.id} className="flex items-center gap-1.5 px-3 py-1.5 border rounded-full text-sm group hover:border-primary/50 transition-colors">
-                  <span>{c.name}</span>
-                  <button className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => openCatForm(c)}>
-                    <Pencil className="h-3 w-3" />
-                  </button>
-                  <button className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleDeleteCat(c.id)}>
-                    <Trash2 className="h-3 w-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* LLM Dialog */}
       <Dialog open={llmDialogOpen} onOpenChange={setLlmDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -248,28 +165,6 @@ export default function SettingsPage() {
               <Button size="sm" onClick={handleSaveLlm} disabled={savingLlm || !llmForm.baseUrl || !llmForm.apiKey || !llmForm.model}>
                 {savingLlm ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                 {editingLlm ? "Update" : "Save"}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Category Dialog */}
-      <Dialog open={catDialogOpen} onOpenChange={setCatDialogOpen}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>{editingCat ? "Edit Category" : "Add Category"}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <Label>Category Name</Label>
-              <Input value={catForm.name} onChange={e => setCatForm({name: e.target.value})} placeholder="e.g., frontend" />
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" size="sm" onClick={() => setCatDialogOpen(false)}>Cancel</Button>
-              <Button size="sm" onClick={handleSaveCat} disabled={savingCat || !catForm.name}>
-                {savingCat ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                {editingCat ? "Update" : "Save"}
               </Button>
             </div>
           </div>
