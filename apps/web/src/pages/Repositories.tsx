@@ -14,15 +14,9 @@ interface Repo {
   name: string;
   localPath: string;
   remoteUrl: string;
-  category: string;
   enabled: boolean;
   authorNames: string;
   authorEmails: string;
-}
-
-interface Category {
-  id: number;
-  name: string;
 }
 
 export default function Repositories() {
@@ -31,20 +25,15 @@ export default function Repositories() {
   const [error, setError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingRepo, setEditingRepo] = useState<Repo | null>(null);
-  const [form, setForm] = useState({ name: "", remoteUrl: "", category: "general", enabled: true, authorNames: "", authorEmails: "" });
+  const [form, setForm] = useState({ name: "", remoteUrl: "", enabled: true, authorNames: "", authorEmails: "" });
   const [saving, setSaving] = useState(false);
-  const [categories, setCategories] = useState<Category[]>([]);
 
   // Test connection state
   const [testingId, setTestingId] = useState<number | null>(null);
   const [refreshingId, setRefreshingId] = useState<number | null>(null);
   const [testResults, setTestResults] = useState<Record<number, { success: boolean; message: string }>>({});
 
-  useEffect(() => { loadRepos(); loadCategories(); }, []);
-
-  async function loadCategories() {
-    try { setCategories(await apiFetch<Category[]>("/categories")); } catch {}
-  }
+  useEffect(() => { loadRepos(); }, []);
 
   async function loadRepos() {
     try {
@@ -60,7 +49,7 @@ export default function Repositories() {
 
   function openCreate() {
     setEditingRepo(null);
-    setForm({ name: "", remoteUrl: "", category: "general", enabled: true, authorNames: "", authorEmails: "" });
+    setForm({ name: "", remoteUrl: "", enabled: true, authorNames: "", authorEmails: "" });
     setDialogOpen(true);
   }
 
@@ -69,7 +58,6 @@ export default function Repositories() {
     setForm({
       name: repo.name,
       remoteUrl: repo.remoteUrl,
-      category: repo.category,
       enabled: repo.enabled,
       authorNames: JSON.parse(repo.authorNames || "[]").join("\n"),
       authorEmails: JSON.parse(repo.authorEmails || "[]").join("\n"),
@@ -83,7 +71,6 @@ export default function Repositories() {
       const body = {
         name: form.name,
         remoteUrl: form.remoteUrl,
-        category: form.category,
         enabled: form.enabled,
         authorNames: form.authorNames.split("\n").map(s => s.trim()).filter(Boolean),
         authorEmails: form.authorEmails.split("\n").map(s => s.trim()).filter(Boolean),
@@ -212,7 +199,6 @@ export default function Repositories() {
               </CardHeader>
               <CardContent className="pt-0">
                 <div className="flex flex-wrap gap-4 text-sm">
-                  <span><strong>Category:</strong> {repo.category}</span>
                   <span><strong>Authors:</strong> {JSON.parse(repo.authorNames || "[]").length}</span>
                 </div>
               </CardContent>
@@ -235,22 +221,7 @@ export default function Repositories() {
               <Label>Git SSH URL</Label>
               <Input value={form.remoteUrl} onChange={e => setForm({...form, remoteUrl: e.target.value})} placeholder="git@github.com:owner/repo.git" />
             </div>
-            <div>
-              <Label>Category</Label>
-              {categories.length > 0 ? (
-                <select
-                  className="flex h-9 w-full rounded-lg border border-input bg-card px-3 py-1 text-sm text-foreground shadow-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/25 dark:border-white/[0.09] dark:bg-white/[0.035] dark:shadow-none"
-                  value={form.category}
-                  onChange={e => setForm({...form, category: e.target.value})}
-                >
-                  {categories.map(c => (
-                    <option key={c.id} value={c.name}>{c.name}</option>
-                  ))}
-                </select>
-              ) : (
-                <Input value={form.category} onChange={e => setForm({...form, category: e.target.value})} placeholder="general" />
-              )}
-            </div>
+
             <div>
               <Label>Author Names (one per line)</Label>
               <Textarea value={form.authorNames} onChange={e => setForm({...form, authorNames: e.target.value})} placeholder="Rina Pratama&#10;Daniel Cho" rows={3} />

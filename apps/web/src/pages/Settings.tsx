@@ -29,19 +29,19 @@ const settingsNav = [
 
 export default function SettingsPage() {
   const { user, updateProfile, activeWorkspace, refreshWorkspaces, workspaces } = useAuth();
-  const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
-  const [workspaceTab, setWorkspaceTab] = useState<"general" | "llm" | "report-template">("general");
+  const [activeTab, setActiveTab] = useState<SettingsTab>(() => (localStorage.getItem("settings:activeTab") as SettingsTab) || "profile");
+  const [workspaceTab, setWorkspaceTab] = useState<"general" | "llm" | "report-template">(() => (localStorage.getItem("settings:workspaceTab") as any) || "general");
 
   // Profile state
-  const [profileName, setProfileName] = useState("");
-  const [profileEmail, setProfileEmail] = useState("");
+  const [profileName, setProfileName] = useState(() => localStorage.getItem("settings:profileName") || "");
+  const [profileEmail, setProfileEmail] = useState(() => localStorage.getItem("settings:profileEmail") || "");
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileSuccess, setProfileSuccess] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
 
   // Workspace state
-  const [wsName, setWsName] = useState("");
-  const [wsDescription, setWsDescription] = useState("");
+  const [wsName, setWsName] = useState(() => localStorage.getItem("settings:wsName") || "");
+  const [wsDescription, setWsDescription] = useState(() => localStorage.getItem("settings:wsDescription") || "");
   const [wsSaving, setWsSaving] = useState(false);
   const [wsSuccess, setWsSuccess] = useState<string | null>(null);
   const [wsError, setWsError] = useState<string | null>(null);
@@ -80,10 +80,14 @@ export default function SettingsPage() {
     if (user) {
       setProfileName(user.name);
       setProfileEmail(user.email);
+      localStorage.setItem("settings:profileName", user.name);
+      localStorage.setItem("settings:profileEmail", user.email);
     }
     if (activeWorkspace) {
       setWsName(activeWorkspace.name);
       setWsDescription(activeWorkspace.description || "");
+      localStorage.setItem("settings:wsName", activeWorkspace.name);
+      localStorage.setItem("settings:wsDescription", activeWorkspace.description || "");
     }
     loadProviders().then(() => setLoading(false));
   }, [user, activeWorkspace]);
@@ -191,6 +195,8 @@ export default function SettingsPage() {
     setProfileSaving(true);
     try {
       await updateProfile({ name: profileName, email: profileEmail });
+      localStorage.setItem("settings:profileName", profileName);
+      localStorage.setItem("settings:profileEmail", profileEmail);
       setProfileSuccess("Profile updated successfully.");
       setTimeout(() => setProfileSuccess(null), 3000);
     } catch (err: any) {
@@ -211,6 +217,8 @@ export default function SettingsPage() {
         body: JSON.stringify({ name: wsName, description: wsDescription || null }),
       });
       await refreshWorkspaces();
+      localStorage.setItem("settings:wsName", wsName);
+      localStorage.setItem("settings:wsDescription", wsDescription || "");
       setWsSuccess("Workspace updated successfully.");
       setTimeout(() => setWsSuccess(null), 3000);
     } catch (err: any) {
@@ -332,7 +340,7 @@ export default function SettingsPage() {
             <button
               key={id}
               type="button"
-              onClick={() => setActiveTab(id)}
+              onClick={() => { setActiveTab(id); localStorage.setItem("settings:activeTab", id); }}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors text-left",
                 activeTab === id
@@ -460,10 +468,10 @@ export default function SettingsPage() {
                 <p className="text-sm text-muted-foreground">Configure workspace settings, LLM providers, and report templates.</p>
 
               {/* Workspace sub-navigation */}
-              <div className="flex gap-1 border-b border-border pb-1 mb-6">
+              <div className="flex gap-1 border-b border-border pb-1 mb-6 mt-2">
                 <button
                   type="button"
-                  onClick={() => setWorkspaceTab("general")}
+                  onClick={() => { setWorkspaceTab("general"); localStorage.setItem("settings:workspaceTab", "general"); }}
                   className={cn(
                     "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
                     workspaceTab === "general"
@@ -475,7 +483,7 @@ export default function SettingsPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setWorkspaceTab("llm")}
+                  onClick={() => { setWorkspaceTab("llm"); localStorage.setItem("settings:workspaceTab", "llm"); }}
                   className={cn(
                     "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
                     workspaceTab === "llm"
@@ -487,7 +495,7 @@ export default function SettingsPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setWorkspaceTab("report-template")}
+                  onClick={() => { setWorkspaceTab("report-template"); localStorage.setItem("settings:workspaceTab", "report-template"); }}
                   className={cn(
                     "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
                     workspaceTab === "report-template"

@@ -8,7 +8,6 @@ import Dashboard from "./pages/Dashboard";
 import Repositories from "./pages/Repositories";
 import Collections from "./pages/Collections";
 import CollectionDetail from "./pages/CollectionDetail";
-import CategoriesPage from "./pages/Categories";
 import SettingsPage from "./pages/Settings";
 
 export default function App() {
@@ -25,7 +24,6 @@ export default function App() {
         <Route path="/repositories" element={<ProtectedRoute><Layout><Repositories /></Layout></ProtectedRoute>} />
         <Route path="/collections" element={<ProtectedRoute><Layout><Collections /></Layout></ProtectedRoute>} />
         <Route path="/collections/:id" element={<ProtectedRoute><Layout><CollectionDetail /></Layout></ProtectedRoute>} />
-        <Route path="/categories" element={<ProtectedRoute><Layout><CategoriesPage /></Layout></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute><Layout><SettingsPage /></Layout></ProtectedRoute>} />
       </Routes>
     </AuthProvider>

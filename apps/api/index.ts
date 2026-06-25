@@ -8,7 +8,6 @@ import { settingsRouter } from "./routes/settings";
 import { reportsRouter } from "./routes/reports";
 import { analysesRouter } from "./routes/analyses";
 import { collectionDetailRouter } from "./routes/collection-detail";
-import { categoriesRouter } from "./routes/categories";
 import { authRouter } from "./routes/auth";
 import { workspacesRouter } from "./routes/workspaces";
 import { runMigration } from "./db/migrate-workspaces";
@@ -41,7 +40,6 @@ app.route("/api/collections", collectionDetailRouter);
 app.route("/api/settings", settingsRouter);
 app.route("/api/reports", reportsRouter);
 app.route("/api/analyses", analysesRouter);
-app.route("/api/categories", categoriesRouter);
 app.route("/api/auth", authRouter);
 app.route("/api/workspaces", workspacesRouter);
 

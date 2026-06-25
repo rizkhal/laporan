@@ -129,15 +129,6 @@ export const analyses = sqliteTable("analyses", {
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
   updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
 });
-
-// ── Categories ──
-export const categories = sqliteTable("categories", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  workspaceId: integer("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
-});
-
 // ── Report Templates ──
 export const reportTemplates = sqliteTable("report_templates", {
   id: integer("id").primaryKey({ autoIncrement: true }),

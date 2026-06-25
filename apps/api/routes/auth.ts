@@ -247,9 +247,6 @@ router.delete("/account", async (c) => {
       // LLM providers
       db.delete(schema.llmProviders).where(eq(schema.llmProviders.workspaceId, wsId)).run();
 
-      // Categories
-      db.delete(schema.categories).where(eq(schema.categories.workspaceId, wsId)).run();
-
       // Report templates
       db.delete(schema.reportTemplates).where(eq(schema.reportTemplates.workspaceId, wsId)).run();
 

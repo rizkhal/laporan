@@ -145,7 +145,6 @@ export function runMigration(): void {
       { name: "repositories", hasData: true },
       { name: "collections", hasData: true },
       { name: "llm_providers", hasData: true },
-      { name: "categories", hasData: true },
       { name: "report_templates", hasData: true },
     ];
 
@@ -171,32 +170,6 @@ export function runMigration(): void {
 
     }
 
-    // 7. Recreate categories table without old unique constraint on name
-    try {
-      const oldIndices = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='categories'").all() as any[];
-      const hasOldUnique = oldIndices.some((i: any) =>
-        i.name.includes("categories_name_unique") || i.name.includes("sqlite_autoindex_categories")
-      );
-      if (hasOldUnique) {
-        const hasNewTable = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='categories_new'").get();
-        if (!hasNewTable) {
-          sqlite!.exec(`
-            CREATE TABLE categories_new (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              workspace_id INTEGER REFERENCES workspaces(id) ON DELETE CASCADE,
-              name TEXT NOT NULL,
-              created_at TEXT NOT NULL DEFAULT (datetime('now'))
-            );
-          `);
-          sqlite!.exec(`INSERT INTO categories_new (id, workspace_id, name, created_at) SELECT id, workspace_id, name, created_at FROM categories`);
-          sqlite!.exec("DROP TABLE categories");
-          sqlite!.exec("ALTER TABLE categories_new RENAME TO categories");
-          console.log("  → Recreated categories table (no unique constraint on name)");
-        }
-      }
-    } catch (err: any) {
-      console.log(`  ⚠️ Categories migration skipped: ${err.message}`);
-    }
     // 8. Add fingerprint column to ssh_keys table
     try {
       const sshKeyCols = sqlite!.prepare("PRAGMA table_info(ssh_keys)").all() as any[];

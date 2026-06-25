@@ -12,7 +12,6 @@ const router = new Hono();
 const repoPayload = z.object({
   name: z.string().min(1),
   remoteUrl: z.string().min(1),
-  category: z.string().optional().default("general"),
   enabled: z.boolean().optional().default(true),
   authorNames: z.array(z.string()).optional().default([]),
   authorEmails: z.array(z.string()).optional().default([]),
@@ -47,7 +46,6 @@ router.post("/", async (c) => {
     name: parsed.name,
     localPath,
     remoteUrl: parsed.remoteUrl,
-    category: parsed.category,
     enabled: parsed.enabled,
     authorNames: JSON.stringify(parsed.authorNames),
     authorEmails: JSON.stringify(parsed.authorEmails),
@@ -86,7 +84,6 @@ router.put("/:id", async (c) => {
     }
     updateData.localPath = resolveRepoPath(ctx.workspace.id, parsed.name || repo.name);
   }
-  if (parsed.category !== undefined) updateData.category = parsed.category;
   if (parsed.enabled !== undefined) updateData.enabled = parsed.enabled;
   if (parsed.authorNames !== undefined) updateData.authorNames = JSON.stringify(parsed.authorNames);
   if (parsed.authorEmails !== undefined) updateData.authorEmails = JSON.stringify(parsed.authorEmails);

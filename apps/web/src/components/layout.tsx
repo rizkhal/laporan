@@ -10,16 +10,14 @@ import {
 
 const navItems = [
   { href: "/dashboard", label: "Overview", icon: BarChart3 },
-  { href: "/collections", label: "Collections", icon: FolderGit2 },
   { href: "/repositories", label: "Repositories", icon: FolderGit2 },
-  { href: "/categories", label: "Categories", icon: Tags },
+  { href: "/collections", label: "Collections", icon: FolderGit2 },
 ];
 
 const commands = [
   { label: "Open overview", href: "/dashboard", detail: "Dashboard" },
   { label: "Start a collection", href: "/collections", detail: "Collection" },
   { label: "Manage repositories", href: "/repositories", detail: "Configuration" },
-  { label: "Manage categories", href: "/categories", detail: "Configuration" },
   { label: "Open settings", href: "/settings", detail: "System" },
 ];
 

@@ -212,13 +212,10 @@ router.delete("/:id", async (c) => {
   // 4. Delete LLM providers
   db.delete(schema.llmProviders).where(eq(schema.llmProviders.workspaceId, id)).run();
 
-  // 5. Delete categories
-  db.delete(schema.categories).where(eq(schema.categories.workspaceId, id)).run();
-
-  // 6. Delete report templates
+  // 5. Delete report templates
   db.delete(schema.reportTemplates).where(eq(schema.reportTemplates.workspaceId, id)).run();
 
-  // 7. Delete workspace members
+  // 6. Delete workspace members
   db.delete(schema.workspaceMembers).where(eq(schema.workspaceMembers.workspaceId, id)).run();
 
   // 8. Finally delete the workspace itself
