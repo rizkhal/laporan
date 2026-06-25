@@ -277,4 +277,43 @@ router.delete("/account", async (c) => {
   }
 });
 
+// Change password
+router.post("/change-password", async (c) => {
+  try {
+    const ctx = requireAuth(c);
+
+    const body = await c.req.json();
+    const parsed = z.object({
+      currentPassword: z.string().min(1, "Current password is required"),
+      newPassword: z.string().min(6, "New password must be at least 6 characters").max(100),
+    }).parse(body);
+
+    // Fetch user with password hash
+    const user = db.select().from(schema.users).where(eq(schema.users.id, ctx.user.id)).get();
+    if (!user) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    // Verify current password
+    const valid = await bcrypt.compare(parsed.currentPassword, user.passwordHash);
+    if (!valid) {
+      return c.json({ error: "Current password is incorrect" }, 403);
+    }
+
+    // Hash and update new password
+    const newHash = await bcrypt.hash(parsed.newPassword, 10);
+    db.update(schema.users)
+      .set({ passwordHash: newHash, updatedAt: new Date().toISOString() })
+      .where(eq(schema.users.id, ctx.user.id))
+      .run();
+
+    return c.json({ success: true, message: "Password changed successfully." });
+  } catch (err: any) {
+    if (err instanceof z.ZodError) {
+      return c.json({ error: err.errors[0].message }, 400);
+    }
+    return c.json({ error: err.message || "Failed to change password" }, 500);
+  }
+});
+
 export { router as authRouter };

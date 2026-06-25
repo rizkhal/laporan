@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { db } from "../db/index";
 import * as schema from "../db/schema";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, asc, and } from "drizzle-orm";
 import { z } from "zod";
 import { requireAuth, assertOwnership } from "../lib/auth";
 
@@ -14,7 +14,7 @@ router.get("/", (c) => {
     .select()
     .from(schema.collections)
     .where(eq(schema.collections.workspaceId, ctx.workspace.id))
-    .orderBy(desc(schema.collections.year), desc(schema.collections.month))
+    .orderBy(desc(schema.collections.year), asc(schema.collections.month))
     .all();
   const parsed = collections.map(col => ({
     ...col,
@@ -30,16 +30,6 @@ router.post("/", async (c) => {
   const parsed = z.object({ year: z.number(), month: z.number(), repoIds: z.array(z.number()).optional() }).parse(body);
 
   const title = `${new Date(parsed.year, parsed.month - 1).toLocaleString("default", { month: "long" })} ${parsed.year}`;
-
-  // Check duplicate within workspace
-  const existing = db.select().from(schema.collections)
-    .where(and(
-      eq(schema.collections.workspaceId, ctx.workspace.id),
-      eq(schema.collections.year, parsed.year),
-      eq(schema.collections.month, parsed.month),
-    ))
-    .get();
-  if (existing) return c.json({ ...existing, repoIds: existing.repoIds ? JSON.parse(existing.repoIds) : null });
 
   const result = db.insert(schema.collections).values({
     workspaceId: ctx.workspace.id,
@@ -60,6 +50,28 @@ router.get("/:id", (c) => {
   const collection = db.select().from(schema.collections).where(eq(schema.collections.id, id)).get();
   assertOwnership(collection, ctx.workspace.id, "Collection");
   const resp = { ...collection, repoIds: collection.repoIds ? JSON.parse(collection.repoIds) : null };
+  return c.json(resp);
+});
+
+// Update collection (e.g., repo selection)
+router.put("/:id", async (c) => {
+  const ctx = requireAuth(c);
+  const id = parseInt(c.req.param("id"));
+  const collection = db.select().from(schema.collections).where(eq(schema.collections.id, id)).get();
+  assertOwnership(collection, ctx.workspace.id, "Collection");
+
+  const body = await c.req.json();
+  const parsed = z.object({ repoIds: z.array(z.number()).nullable().optional() }).parse(body);
+
+  const updateData: any = { updatedAt: new Date().toISOString() };
+  if (parsed.repoIds !== undefined) {
+    updateData.repoIds = parsed.repoIds === null ? null : JSON.stringify(parsed.repoIds);
+  }
+
+  const result = db.update(schema.collections).set(updateData).where(eq(schema.collections.id, id)).returning().get();
+  if (!result) return c.json({ error: "Not found" }, 404);
+
+  const resp = { ...result, repoIds: result.repoIds ? JSON.parse(result.repoIds) : null };
   return c.json(resp);
 });
 
@@ -111,4 +123,38 @@ router.get("/:id/stats", (c) => {
   });
 });
 
+// Get per-repo stats for a collection
+router.get("/:id/repo-stats", (c) => {
+  const ctx = requireAuth(c);
+  const id = parseInt(c.req.param("id"));
+  const collection = db.select().from(schema.collections).where(eq(schema.collections.id, id)).get();
+  assertOwnership(collection, ctx.workspace.id, "Collection");
+
+  const commits = db.select().from(schema.commits).where(eq(schema.commits.collectionId, id)).all();
+
+  // Group by repo
+  const byRepo = new Map<number, { repoId: number; commits: number; insertions: number; deletions: number }>();
+  for (const c of commits) {
+    const existing = byRepo.get(c.repoId);
+    if (existing) {
+      existing.commits += 1;
+      existing.insertions += c.insertions;
+      existing.deletions += c.deletions;
+    } else {
+      byRepo.set(c.repoId, { repoId: c.repoId, commits: 1, insertions: c.insertions, deletions: c.deletions });
+    }
+  }
+
+  // Enrich with repo names and sort
+  const result = [...byRepo.values()].map((stat) => {
+    const repo = db.select().from(schema.repositories)
+      .where(and(eq(schema.repositories.id, stat.repoId), eq(schema.repositories.workspaceId, ctx.workspace.id)))
+      .get();
+    return { ...stat, repoName: repo?.name || `Repo #${stat.repoId}` };
+  }).sort((a, b) => b.commits - a.commits);
+
+  return c.json(result);
+});
+
 export { router as collectionsRouter };
+export { collectionDetailRouter } from "./collection-detail";

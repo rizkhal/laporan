@@ -6,13 +6,14 @@ import { Input } from "../components/ui/Input";
 import { Label } from "../components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { apiFetch } from "../lib/utils";
-import { ArrowRight, Calendar, FileText, GitBranch, GitCommit, Loader2, Plus, Trash2 } from "lucide-react";
+import { ArrowRight, Calendar, FileText, GitBranch, GitCommit, Info, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 
 interface Collection {
   id: number; year: number; month: number; title: string; status: string; createdAt: string; repoIds: number[] | string | null;
 }
 interface Repo { id: number; name: string; localPath: string; category: string; }
 interface Stats { totalCommits?: number; totalFiles?: number; totalInsertions?: number; totalDeletions?: number; }
+interface RepoStats { repoId: number; repoName: string; commits: number; insertions: number; deletions: number; }
 
 const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const statusVariant: Record<string, "default" | "secondary" | "success" | "warning"> = {
@@ -37,6 +38,12 @@ export default function Collections() {
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [creating, setCreating] = useState(false);
   const [selectedRepoIds, setSelectedRepoIds] = useState<number[] | null>(null);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingCollection, setEditingCollection] = useState<Collection | null>(null);
+  const [editRepoIds, setEditRepoIds] = useState<number[] | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [viewMode, setViewMode] = useState<"timeline" | "by-repo">("timeline");
+  const [repoStatsMap, setRepoStatsMap] = useState<Record<number, RepoStats[]>>({});
 
   useEffect(() => {
     async function load() {
@@ -52,6 +59,15 @@ export default function Collections() {
           await apiFetch<Stats>(`/collections/${collection.id}/stats`).catch(() => ({})),
         ] as const));
         setStats(Object.fromEntries(pairs));
+
+        // Load per-repo stats for each collection
+        const repoPairs = await Promise.all(collectionData.map(async (c) => {
+          try {
+            const data = await apiFetch<RepoStats[]>(`/collections/${c.id}/repo-stats`);
+            return [c.id, data] as const;
+          } catch { return [c.id, []] as const; }
+        }));
+        setRepoStatsMap(Object.fromEntries(repoPairs));
       } catch (err: any) {
         setError(err.message);
       } finally {
@@ -73,6 +89,35 @@ export default function Collections() {
       setError(err.message);
     } finally {
       setCreating(false);
+    }
+  }
+
+  function handleEditCollection(collection: Collection) {
+    const parsed = typeof collection.repoIds === "string"
+      ? (() => { try { return JSON.parse(collection.repoIds); } catch { return null; } })()
+      : collection.repoIds;
+    setEditingCollection(collection);
+    setEditRepoIds(parsed);
+    setEditDialogOpen(true);
+  }
+
+  async function handleSaveEdit() {
+    if (!editingCollection) return;
+    try {
+      setEditing(true);
+      await apiFetch(`/collections/${editingCollection.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ repoIds: editRepoIds }),
+      });
+      setCollections((items) => items.map((item) =>
+        item.id === editingCollection.id ? { ...item, repoIds: editRepoIds } : item
+      ));
+      setEditDialogOpen(false);
+      setEditingCollection(null);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setEditing(false);
     }
   }
 
@@ -98,6 +143,14 @@ export default function Collections() {
           <p className="mb-2 text-sm font-medium text-primary">Git collection</p>
           <h1 className="text-3xl font-semibold tracking-[-0.04em]">Collection timeline</h1>
           <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">Each reporting period captures repository activity before analysis begins.</p>
+          <div className="mt-4 flex items-center gap-1 rounded-lg border border-border bg-card p-0.5 w-fit">
+            <button type="button" onClick={() => setViewMode("timeline")} className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === "timeline" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+              Timeline
+            </button>
+            <button type="button" onClick={() => setViewMode("by-repo")} className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === "by-repo" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+              By repository
+            </button>
+          </div>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild><Button onClick={() => setSelectedRepoIds(null)}><Plus className="size-4" /> New collection</Button></DialogTrigger>
@@ -153,6 +206,17 @@ export default function Collections() {
           <p className="mt-1 text-sm text-muted-foreground">Create a reporting period to collect the first set of commits.</p>
           <Button className="mt-5" onClick={() => setDialogOpen(true)}><Plus /> Create collection</Button>
         </div>
+      ) : viewMode === "by-repo" ? (
+        <RepoGroupView
+          collections={collections}
+          repos={repos}
+          repoStatsMap={repoStatsMap}
+          statusVariant={statusVariant}
+          months={months}
+          navigate={navigate}
+          onEdit={handleEditCollection}
+          onDelete={handleDelete}
+        />
       ) : (
         <div className="relative space-y-4 before:absolute before:bottom-8 before:left-5 before:top-8 before:w-px before:bg-border sm:before:left-7">
           {collections.map((collection, index) => {
@@ -174,7 +238,10 @@ export default function Collections() {
                     </div>
 
                     <div className="grid flex-1 grid-cols-2 gap-4 sm:grid-cols-4">
-                      <Metric icon={GitBranch} label="Repositories" value={repositoryCount} />
+                      <div className="relative">
+                        <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><GitBranch className="size-3.5" /> Repositories <span className="group relative inline-flex"><Info className="size-3 cursor-pointer text-muted-foreground/60 hover:text-muted-foreground" /><div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-max max-w-56 -translate-x-1/2 rounded-lg border border-border bg-popover px-3 py-2 shadow-lg opacity-0 transition-opacity group-hover:opacity-100"><p className="text-xs font-medium text-foreground">{(collection.repoIds ? repos.filter((r) => (Array.isArray(collection.repoIds) ? collection.repoIds : JSON.parse(collection.repoIds as string)).includes(r.id)) : repos).slice(0, 15).map((r) => r.name).join(', ')}{repositoryCount > 15 ? ` +${repositoryCount - 15} more` : ''}</p></div></span></p>
+                        <p className="mt-1 font-mono text-lg font-semibold">{repositoryCount}</p>
+                      </div>
                       <Metric icon={GitCommit} label="Commits" value={collectionStats.totalCommits || 0} />
                       <Metric icon={FileText} label="Files changed" value={collectionStats.totalFiles || 0} />
                       <div>
@@ -190,6 +257,7 @@ export default function Collections() {
                       <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${progress}%` }} /></div>
                       <span className="font-mono text-xs text-muted-foreground">{progress}%</span>
                       <ArrowRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                      <span onClick={(event) => { event.stopPropagation(); handleEditCollection(collection); }} className="grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted"><Pencil className="size-3.5" /></span>
                       <span onClick={(event) => handleDelete(event, collection.id)} className="grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 className="size-3.5" /></span>
                     </div>
                   </div>
@@ -199,10 +267,151 @@ export default function Collections() {
           })}
         </div>
       )}
+
+      {/* Edit collection dialog */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="max-w-md rounded-2xl">
+          <DialogHeader><DialogTitle>Edit collection</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            {editingCollection && (
+              <p className="text-sm text-muted-foreground">
+                Editing repositories for <strong>{editingCollection.title}</strong>
+              </p>
+            )}
+            <button type="button" onClick={() => setEditRepoIds(null)} className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left ${editRepoIds === null ? "border-primary/40 bg-primary/5" : "hover:bg-muted"}`}>
+              <GitBranch className="size-4 text-muted-foreground" />
+              <span className="text-sm font-medium">All enabled repositories</span>
+              <span className="ml-auto font-mono text-xs text-muted-foreground">{repos.length}</span>
+            </button>
+            <div className="grid max-h-52 gap-2 overflow-y-auto">
+              {repos.map((repo) => {
+                const checked = editRepoIds?.includes(repo.id) || false;
+                return (
+                  <label key={repo.id} className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-muted">
+                    <input type="checkbox" checked={checked} onChange={() => setEditRepoIds((current) => current === null ? [repo.id] : checked ? current.filter((id) => id !== repo.id) : [...current, repo.id])} className="size-4 rounded border-input bg-card" />
+                    <span className="text-sm">{repo.name}</span>
+                    <span className="ml-auto text-xs text-muted-foreground">{repo.category}</span>
+                  </label>
+                );
+              })}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setEditDialogOpen(false)}>Cancel</Button>
+              <Button onClick={handleSaveEdit} disabled={editing || editRepoIds?.length === 0}>
+                {editing && <Loader2 className="animate-spin" />} Save
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
 function Metric({ icon: Icon, label, value }: { icon: typeof GitBranch; label: string; value: number }) {
   return <div><p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Icon className="size-3.5" /> {label}</p><p className="mt-1 font-mono text-lg font-semibold">{value}</p></div>;
+}
+
+function RepoGroupView({
+  collections,
+  repos,
+  repoStatsMap,
+  statusVariant,
+  months,
+  navigate,
+  onEdit,
+  onDelete,
+}: {
+  collections: Collection[];
+  repos: Repo[];
+  repoStatsMap: Record<number, RepoStats[]>;
+  statusVariant: Record<string, string>;
+  months: string[];
+  navigate: (path: string) => void;
+  onEdit: (c: Collection) => void;
+  onDelete: (e: React.MouseEvent, id: number) => void;
+}) {
+  // Build repo -> collections map
+  const repoCollections = new Map<number, { repo: Repo; collections: { collection: Collection; stats?: RepoStats }[] }>();
+
+  for (const repo of repos) {
+    const colls = collections
+      .filter((c) => !c.repoIds || (Array.isArray(c.repoIds) ? c.repoIds : JSON.parse(c.repoIds as string)).includes(repo.id))
+      .map((c) => ({
+        collection: c,
+        stats: repoStatsMap[c.id]?.find((s) => s.repoId === repo.id),
+      }))
+      .sort((a, b) => {
+        const dateA = b.collection.year * 12 + b.collection.month;
+        const dateB = a.collection.year * 12 + a.collection.month;
+        return dateB - dateA;
+      });
+    if (colls.length > 0) {
+      repoCollections.set(repo.id, { repo, collections: colls });
+    }
+  }
+
+  const sortedRepos = [...repoCollections.values()].sort((a, b) => {
+    const aLatest = a.collections[0]?.collection;
+    const bLatest = b.collections[0]?.collection;
+    const aDate = aLatest ? aLatest.year * 12 + aLatest.month : 0;
+    const bDate = bLatest ? bLatest.year * 12 + bLatest.month : 0;
+    return bDate - aDate;
+  });
+
+  return (
+    <div className="relative space-y-4 before:absolute before:bottom-8 before:left-5 before:top-8 before:w-px before:bg-border sm:before:left-7">
+      {sortedRepos.map(({ repo, collections: colls }, index) => {
+        const totalCommits = colls.reduce((s, c) => s + (c.stats?.commits || 0), 0);
+        const totalInsertions = colls.reduce((s, c) => s + (c.stats?.insertions || 0), 0);
+        const totalDeletions = colls.reduce((s, c) => s + (c.stats?.deletions || 0), 0);
+        return (
+          <article key={repo.id} className="relative pl-12 sm:pl-16">
+            <span className={`absolute left-[14px] top-7 z-10 size-3 rounded-full border-[3px] border-background sm:left-[22px] ${index === 0 ? "bg-primary" : "bg-muted-foreground/40"}`} />
+            <div className="surface w-full rounded-xl p-5 sm:p-6">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <GitBranch className="size-4 text-primary" />
+                    <h3 className="truncate text-lg font-semibold">{repo.name}</h3>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {colls.length} collection{colls.length > 1 ? "s" : ""} • {totalCommits} total commit{totalCommits !== 1 ? "s" : ""}
+                    <span className="ml-2 text-success-foreground">+{totalInsertions}</span>
+                    <span className="ml-1 text-destructive">-{totalDeletions}</span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-2">
+                {colls.map(({ collection: c, stats }) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => navigate(`/collections/${c.id}`)}
+                    className="group flex items-center gap-3 rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-left transition-all hover:border-border hover:bg-muted/60"
+                  >
+                    <Badge variant={statusVariant[c.status] as any} className="shrink-0">{c.status}</Badge>
+                    <span className="min-w-0 truncate text-sm font-medium">{c.title}</span>
+                    {stats && (
+                      <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                        {stats.commits} commit{stats.commits !== 1 ? "s" : ""}
+                        <span className="ml-1.5 text-success-foreground">+{stats.insertions}</span>
+                        <span className="ml-1 text-destructive">-{stats.deletions}</span>
+                      </span>
+                    )}
+                    {!stats && <span className="ml-auto text-xs text-muted-foreground">No commits</span>}
+                    <span className="flex items-center gap-1 shrink-0 ml-2">
+                      <span onClick={(e) => { e.stopPropagation(); onEdit(c); }} className="grid size-7 place-items-center rounded-md text-muted-foreground opacity-0 transition-all hover:bg-muted group-hover:opacity-100"><Pencil className="size-3" /></span>
+                      <span onClick={(e) => onDelete(e, c.id)} className="grid size-7 place-items-center rounded-md text-muted-foreground opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"><Trash2 className="size-3" /></span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
 }

@@ -10,7 +10,10 @@
   (() => {
     const savedTheme = localStorage.getItem("theme");
     const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    document.documentElement.classList.toggle("dark", savedTheme === "dark" || (!savedTheme && prefersDark));
+    const dark = savedTheme === "dark" || (!savedTheme && prefersDark);
+    document.documentElement.classList.toggle("dark", dark);
+    document.querySelector('meta[name="theme-color"]')
+      ?.setAttribute("content", dark ? "#14151a" : "#f9fafb");
   })();
 </script>
 </head>

@@ -122,7 +122,6 @@ export function getFingerprint(workspaceId: number): string {
   }
 
   // Output format: "SHA256:xxxxx comment (ED25519)"
-  // Extract just the fingerprint part
   const parts = result.stdout.trim().split(/\s+/);
   return parts[0] || "unknown";
 }
@@ -133,7 +132,6 @@ export function getFingerprint(workspaceId: number): string {
  */
 export function setupKnownHosts(workspaceId: number): void {
   const files = getKeyFilePaths(workspaceId);
-  const dir = getWorkspaceKeyDir(workspaceId);
   ensureKeyDir(workspaceId);
 
   // Only scan if known_hosts doesn't exist
@@ -150,7 +148,6 @@ export function setupKnownHosts(workspaceId: number): void {
     writeFileSync(files.knownHostsPath, result.stdout.trim(), "utf-8");
     chmodSync(files.knownHostsPath, 0o644);
   } else {
-    // Fallback: create a known_hosts with strict checking disabled note
     writeFileSync(files.knownHostsPath, "# GitHub host key not yet scanned\n", "utf-8");
   }
 }
@@ -160,16 +157,12 @@ export function setupKnownHosts(workspaceId: number): void {
  */
 export function buildGitSshCommand(workspaceId: number): string {
   const files = getKeyFilePaths(workspaceId);
-
   if (!existsSync(files.privateKeyPath)) {
     throw new Error("SSH private key not found for this workspace");
   }
-
-  // Ensure known_hosts exists
   if (!existsSync(files.knownHostsPath)) {
     setupKnownHosts(workspaceId);
   }
-
   return `ssh -i ${files.privateKeyPath} -o UserKnownHostsFile=${files.knownHostsPath} -o StrictHostKeyChecking=yes`;
 }
 
@@ -179,219 +172,10 @@ export function buildGitSshCommand(workspaceId: number): string {
  */
 export function buildGitSshCommandLenient(workspaceId: number): string {
   const files = getKeyFilePaths(workspaceId);
-
   if (!existsSync(files.privateKeyPath)) {
     throw new Error("SSH private key not found for this workspace");
   }
-
   return `ssh -i ${files.privateKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`;
-}
-
-/**
- * Run a shell command with the workspace SSH key environment.
- * Returns the combined stdout+stderr output.
- */
-export function runWithSshKey(
-  workspaceId: number,
-  command: string,
-  args: string[],
-  options?: { timeout?: number; maxBuffer?: number; lenientHostKey?: boolean },
-): { stdout: string; stderr: string; exitCode: number } {
-  const keyDir = getWorkspaceKeyDir(workspaceId);
-  ensureKeyDir(workspaceId);
-
-  const gitSshCmd = options?.lenientHostKey
-    ? buildGitSshCommandLenient(workspaceId)
-    : buildGitSshCommand(workspaceId);
-
-  const env = {
-    ...process.env,
-    GIT_SSH_COMMAND: gitSshCmd,
-    HOME: keyDir, // Helps ssh find the key
-  };
-
-  const result = spawnSync(command, args, {
-    env,
-    encoding: "utf-8",
-    timeout: options?.timeout || 15000,
-    maxBuffer: (options?.maxBuffer || 10) * 1024 * 1024,
-  });
-
-  return {
-    stdout: result.stdout || "",
-    stderr: result.stderr || "",
-    exitCode: result.status ?? -1,
-  };
-}
-
-/**
- * Test connection to GitHub using the workspace SSH key.
- * Returns { success, message, details }.
- */
-export function testGitHubConnection(workspaceId: number): {
-  success: boolean;
-  message: string;
-  details: string;
-} {
-  const files = getKeyFilePaths(workspaceId);
-
-  if (!existsSync(files.privateKeyPath)) {
-    return {
-      success: false,
-      message: "No SSH key found for this workspace. Generate an SSH key first.",
-      details: "Run ssh-keygen first using the generate endpoint.",
-    };
-  }
-
-  const gitSshCmd = buildGitSshCommandLenient(workspaceId);
-
-  const env = {
-    ...process.env,
-    GIT_SSH_COMMAND: gitSshCmd,
-  };
-
-  const result = spawnSync("ssh", [
-    "-i", files.privateKeyPath,
-    "-o", "StrictHostKeyChecking=no",
-    "-o", "UserKnownHostsFile=/dev/null",
-    "-T", "git@github.com",
-  ], {
-    env,
-    encoding: "utf-8",
-    timeout: 15000,
-  });
-
-  const output = (result.stdout + result.stderr).trim();
-
-  // GitHub returns exit code 1 even on success with message
-  // "Hi <user>! You've successfully authenticated..."
-  if (output.includes("successfully authenticated")) {
-    return {
-      success: true,
-      message: "GitHub authentication successful.",
-      details: output,
-    };
-  }
-
-  if (output.includes("Permission denied")) {
-    return {
-      success: false,
-      message: "SSH key is not authorized on GitHub. Add the public key to GitHub Deploy Keys or account SSH keys.",
-      details: output,
-    };
-  }
-
-  if (output.includes("could not resolve") || output.includes("Connection refused")) {
-    return {
-      success: false,
-      message: "Cannot connect to GitHub. Check your network connection.",
-      details: output,
-    };
-  }
-
-  // Unknown response
-  return {
-    success: output.length > 0,
-    message: output.length > 0 ? `GitHub responded: ${output.slice(0, 200)}` : "No response from GitHub.",
-    details: output || "No output from SSH command.",
-  };
-}
-
-/**
- * Test connection to a Git repository using the workspace SSH key.
- * Returns { success, message, defaultBranch?, refsFound? }.
- */
-export function testRepoConnection(
-  workspaceId: number,
-  repoUrl: string,
-): {
-  success: boolean;
-  message: string;
-  defaultBranch?: string;
-  refsFound?: number;
-} {
-  const files = getKeyFilePaths(workspaceId);
-
-  if (!existsSync(files.privateKeyPath)) {
-    return {
-      success: false,
-      message: "No SSH key found for this workspace. Generate an SSH key first.",
-    };
-  }
-
-  // Validate URL is an SSH URL
-  if (!repoUrl.startsWith("git@") && !repoUrl.startsWith("ssh://")) {
-    return {
-      success: false,
-      message: "Invalid repository SSH URL. Repository URL must use SSH format (e.g., git@github.com:owner/repo.git).",
-    };
-  }
-
-  const result = runWithSshKey(workspaceId, "git", ["ls-remote", repoUrl], {
-    timeout: 20000,
-    lenientHostKey: true,
-  });
-
-  const output = (result.stdout + result.stderr).trim();
-
-  if (result.exitCode === 0 && result.stdout.trim().length > 0) {
-    // Parse refs
-    const lines = result.stdout.trim().split("\n").filter(Boolean);
-    const refs = lines.filter(l => l.includes("refs/"));
-
-    // Find default branch (HEAD reference)
-    const headLine = lines.find(l => l.includes("HEAD"));
-    let defaultBranch: string | undefined;
-    if (headLine) {
-      const parts = headLine.split("\t");
-      if (parts.length > 1) {
-        const ref = parts[1];
-        defaultBranch = ref.replace("refs/heads/", "").replace("refs/", "");
-      }
-    }
-
-    return {
-      success: true,
-      message: "Repository connection successful.",
-      defaultBranch,
-      refsFound: refs.length,
-    };
-  }
-
-  if (output.includes("Permission denied")) {
-    return {
-      success: false,
-      message: "SSH key is not authorized. Add the workspace public key to the repository Deploy Keys.",
-    };
-  }
-
-  if (output.includes("repository not found") || output.includes("does not appear to be a git repository")) {
-    return {
-      success: false,
-      message: "Repository not found or this SSH key does not have access.",
-    };
-  }
-
-  if (output.includes("could not resolve") || output.includes("Name or service not known")) {
-    return {
-      success: false,
-      message: "Could not resolve the repository host. Check the repository URL.",
-    };
-  }
-
-  if (output.includes("Connection refused") || output.includes("Connection timed out")) {
-    return {
-      success: false,
-      message: "Connection refused or timed out. Check your network and the repository URL.",
-    };
-  }
-
-  // Fallback: show raw error
-  const errorMsg = output.slice(0, 300) || `git exit code: ${result.exitCode}`;
-  return {
-    success: false,
-    message: `Connection failed: ${errorMsg}`,
-  };
 }
 
 /**

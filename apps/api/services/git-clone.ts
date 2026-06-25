@@ -1,8 +1,7 @@
-import { spawnSync } from "child_process";
-import { existsSync, mkdirSync, chmodSync, rmSync } from "fs";
+import { existsSync, mkdirSync, rmSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { getKeyFilePaths, buildGitSshCommandLenient } from "./ssh-key";
+import { execGit, generateExecId, killGitExec } from "./git-exec";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_STORAGE = path.join(__dirname, "..", ".storage", "repos");
@@ -17,42 +16,61 @@ export function resolveRepoPath(workspaceId: number, repoName: string): string {
 }
 
 /**
- * Run a git command with workspace SSH key environment.
+ * Validate that a directory contains a valid git repository.
+ * Runs `git rev-parse --git-dir` to verify.
  */
-function runGitSsh(workspaceId: number, cwd: string | undefined, args: string[], timeout = 30000): { stdout: string; stderr: string; exitCode: number } {
-  const env: Record<string, string | undefined> = { ...process.env as any };
+async function isValidGitRepo(localPath: string): Promise<boolean> {
+  try {
+    const result = await execGit(["rev-parse", "--git-dir"], {
+      cwd: localPath,
+      timeout: 10000,
+    });
+    return result.exitCode === 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Remove a directory forcefully, retrying if necessary.
+ * Ensures the directory is actually gone before returning.
+ */
+function forceRemoveDir(dirPath: string): boolean {
+  if (!existsSync(dirPath)) return true;
 
   try {
-    const files = getKeyFilePaths(workspaceId);
-    if (existsSync(files.privateKeyPath)) {
-      env.GIT_SSH_COMMAND = buildGitSshCommandLenient(workspaceId);
-    }
-  } catch {}
+    rmSync(dirPath, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+  } catch {
+    // Fallback: try with spawnSync
+    try {
+      const { spawnSync } = require("child_process");
+      spawnSync("rm", ["-rf", dirPath], { timeout: 30000 });
+    } catch {}
+  }
 
-  const result = spawnSync("git", args, {
-    cwd,
-    encoding: "utf-8",
-    maxBuffer: 50 * 1024 * 1024,
-    timeout,
-    env,
-  });
+  // Verify it's gone
+  return !existsSync(dirPath);
+}
 
-  return {
-    stdout: result.stdout || "",
-    stderr: result.stderr || "",
-    exitCode: result.status ?? -1,
-  };
+/**
+ * Clean a stale/orphaned clone directory.
+ * Removes the directory from disk unconditionally.
+ */
+export function cleanStaleClone(workspaceId: number, repoName: string): boolean {
+  const localPath = resolveRepoPath(workspaceId, repoName);
+  return forceRemoveDir(localPath);
 }
 
 /**
  * Clone a repository into the managed storage directory.
+ * Async — does NOT block the event loop.
  * Returns { success, localPath, message }.
  */
-export function cloneRepo(
+export async function cloneRepo(
   workspaceId: number,
   remoteUrl: string,
   repoName: string,
-): { success: boolean; localPath: string; message: string } {
+): Promise<{ success: boolean; localPath: string; message: string }> {
   const localPath = resolveRepoPath(workspaceId, repoName);
   const parentDir = path.dirname(localPath);
 
@@ -61,20 +79,40 @@ export function cloneRepo(
     mkdirSync(parentDir, { recursive: true, mode: 0o700 });
   }
 
-  // Remove stale/incomplete clone
+  // Check for existing clone — validate it's a real git repo
   if (existsSync(localPath)) {
-    if (!existsSync(path.join(localPath, ".git"))) {
-      rmSync(localPath, { recursive: true, force: true });
-    } else {
+    if (existsSync(path.join(localPath, ".git")) && (await isValidGitRepo(localPath))) {
       return { success: true, localPath, message: "Repository already cloned" };
     }
+    // Stale/incomplete clone — remove it
+    forceRemoveDir(localPath);
   }
 
-  const result = runGitSsh(workspaceId, undefined, ["clone", remoteUrl, localPath], 120000);
+  // Ensure parent dir still exists (might have been cleaned up)
+  if (!existsSync(parentDir)) {
+    mkdirSync(parentDir, { recursive: true, mode: 0o700 });
+  }
+
+  // Generate execId for process tracking (cancellation support)
+  const execId = generateExecId();
+
+  const result = await execGit(["clone", remoteUrl, localPath], {
+    workspaceId,
+    timeout: 600000,
+    execId,
+  });
+
+  // Remove from tracking
+  killGitExec(execId);
 
   if (result.exitCode !== 0) {
     const error = result.stderr.trim() || result.stdout.trim() || "Unknown clone error";
     return { success: false, localPath, message: `Clone failed: ${error}` };
+  }
+
+  // Post-clone validation: verify .git directory exists
+  if (!existsSync(path.join(localPath, ".git"))) {
+    return { success: false, localPath, message: "Clone completed but .git directory not found. Possible file system race condition." };
   }
 
   return { success: true, localPath, message: "Repository cloned successfully" };
@@ -82,17 +120,27 @@ export function cloneRepo(
 
 /**
  * Pull latest changes for an already-cloned repository.
+ * Async — does NOT block the event loop.
  * Returns { success, message }.
  */
-export function pullRepo(
+export async function pullRepo(
   workspaceId: number,
   localPath: string,
-): { success: boolean; message: string } {
+): Promise<{ success: boolean; message: string }> {
   if (!existsSync(path.join(localPath, ".git"))) {
     return { success: false, message: "Not a git repository" };
   }
 
-  const result = runGitSsh(workspaceId, localPath, ["pull", "--ff-only"], 60000);
+  const execId = generateExecId();
+
+  const result = await execGit(["pull", "--ff-only"], {
+    cwd: localPath,
+    workspaceId,
+    timeout: 120000,
+    execId,
+  });
+
+  killGitExec(execId);
 
   if (result.exitCode !== 0) {
     const error = result.stderr.trim() || result.stdout.trim() || "Pull failed";
@@ -105,19 +153,18 @@ export function pullRepo(
 /**
  * Ensure a repository is cloned and up-to-date.
  * Clones if not exists, pulls if already cloned.
- * Returns { success, localPath, message }.
+ * Async — does NOT block the event loop.
  */
-export function ensureRepoCloned(
+export async function ensureRepoCloned(
   workspaceId: number,
   remoteUrl: string,
   repoName: string,
-): { success: boolean; localPath: string; message: string } {
+): Promise<{ success: boolean; localPath: string; message: string }> {
   const localPath = resolveRepoPath(workspaceId, repoName);
   const gitDir = path.join(localPath, ".git");
 
-  if (existsSync(gitDir)) {
-    // Already cloned — pull latest
-    const pullResult = pullRepo(workspaceId, localPath);
+  if (existsSync(gitDir) && (await isValidGitRepo(localPath))) {
+    const pullResult = await pullRepo(workspaceId, localPath);
     return {
       success: pullResult.success,
       localPath,
@@ -125,6 +172,5 @@ export function ensureRepoCloned(
     };
   }
 
-  // Clone
   return cloneRepo(workspaceId, remoteUrl, repoName);
 }

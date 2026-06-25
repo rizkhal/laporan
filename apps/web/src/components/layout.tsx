@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { cn } from "../lib/utils";
 import { useAuth } from "../lib/auth";
 import { WorkspaceSwitcher } from "./workspace-switcher";
+import { ActivityCenter } from "./activity-center";
 import {
   ArrowRight, BarChart3, Command, FileText, FolderGit2, LogOut, Moon,
   Search, Settings, Sun, Tags, User, X,
@@ -38,7 +39,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
     localStorage.setItem("theme", dark ? "dark" : "light");
-    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#101218" : "#f8f9fb");
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#14151a" : "#f9fafb");
   }, [dark]);
 
   useEffect(() => {
@@ -105,6 +106,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <button type="button" aria-label="Open command palette" onClick={() => setPaletteOpen(true)} className="grid size-9 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground sm:hidden">
               <Command className="size-4" />
             </button>
+            <ActivityCenter />
             <button type="button" aria-label={dark ? "Use light theme" : "Use dark theme"} onClick={() => setDark((value) => !value)} className="grid size-9 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground">
               {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
             </button>

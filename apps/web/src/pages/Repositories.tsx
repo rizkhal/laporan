@@ -5,9 +5,10 @@ import { Input } from "../components/ui/Input";
 import { Textarea } from "../components/ui/textarea";
 import { Label } from "../components/ui/label";
 import { Badge } from "../components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { apiFetch } from "../lib/utils";
-import { Plus, Pencil, Trash2, GitBranch, Link, Loader2, Check, X, RefreshCw } from "lucide-react";
+import { useToast } from "../components/toast";
+import { Plus, Pencil, Trash2, GitBranch, Link, Loader2, Check, X, RefreshCw, AlertTriangle } from "lucide-react";
 
 interface Repo {
   id: number;
@@ -17,7 +18,20 @@ interface Repo {
   enabled: boolean;
   authorNames: string;
   authorEmails: string;
+  cloneStatus: string;
+  cloneError: string | null;
+  lastClonedAt: string | null;
+  lastSyncedAt: string | null;
 }
+
+const cloneStatusConfig: Record<string, { label: string; variant: "default" | "secondary" | "success" | "warning" | "destructive"; icon: typeof Loader2 | typeof Check | typeof X | typeof AlertTriangle | typeof GitBranch }> = {
+  pending_clone: { label: "Pending Setup", variant: "secondary", icon: GitBranch },
+  cloning: { label: "Cloning...", variant: "warning", icon: Loader2 },
+  connected: { label: "Connected", variant: "success", icon: Check },
+  failed: { label: "Failed", variant: "destructive", icon: X },
+  syncing: { label: "Syncing...", variant: "warning", icon: Loader2 },
+  testing: { label: "Connecting...", variant: "warning", icon: Loader2 },
+};
 
 export default function Repositories() {
   const [repos, setRepos] = useState<Repo[]>([]);
@@ -31,13 +45,32 @@ export default function Repositories() {
   // Test connection state
   const [testingId, setTestingId] = useState<number | null>(null);
   const [refreshingId, setRefreshingId] = useState<number | null>(null);
+  const [retryingId, setRetryingId] = useState<number | null>(null);
   const [testResults, setTestResults] = useState<Record<number, { success: boolean; message: string }>>({});
 
-  useEffect(() => { loadRepos(); }, []);
+  // Auto-refresh polling for status updates
+  const [pollInterval, setPollInterval] = useState<ReturnType<typeof setInterval> | null>(null);
+
+  const { addToast } = useToast();
+
+  useEffect(() => {
+    loadRepos();
+
+    // Poll for status updates every 5s while there are pending/cloning repos
+    const pollTimer = setInterval(() => {
+      const hasActive = repos.some((r) =>
+        r.cloneStatus === "pending_clone" || r.cloneStatus === "cloning" || r.cloneStatus === "syncing"
+      );
+      if (hasActive) {
+        loadRepos();
+      }
+    }, 5000);
+
+    return () => clearInterval(pollTimer);
+  }, [repos]);
 
   async function loadRepos() {
     try {
-      setLoading(true);
       const data = await apiFetch<Repo[]>("/repos");
       setRepos(data);
     } catch (err: any) {
@@ -79,13 +112,18 @@ export default function Repositories() {
       if (editingRepo) {
         const updated = await apiFetch<Repo>(`/repos/${editingRepo.id}`, { method: "PUT", body: JSON.stringify(body) });
         setRepos(repos.map(r => r.id === updated.id ? updated : r));
+        setDialogOpen(false);
+        addToast({ type: "success", title: "Repository updated" });
       } else {
+        // Create returns immediately with pending_clone status
         const created = await apiFetch<Repo>("/repos", { method: "POST", body: JSON.stringify(body) });
         setRepos([...repos, created]);
+        setDialogOpen(false);
+        addToast({ type: "success", title: "Repository added", description: "Clone started in background." });
       }
-      setDialogOpen(false);
     } catch (err: any) {
       setError(err.message);
+      addToast({ type: "error", title: "Failed to save repository", description: err.message });
     } finally {
       setSaving(false);
     }
@@ -96,6 +134,7 @@ export default function Repositories() {
     try {
       await apiFetch(`/repos/${id}`, { method: "DELETE" });
       setRepos(repos.filter(r => r.id !== id));
+      addToast({ type: "success", title: "Repository deleted" });
     } catch (err: any) {
       setError(err.message);
     }
@@ -107,11 +146,30 @@ export default function Repositories() {
       const result = await apiFetch<{ success: boolean; message: string }>(`/repos/${id}/refresh`, { method: "POST" });
       if (!result.success) {
         setError(result.message);
+        addToast({ type: "error", title: "Refresh failed", description: result.message });
+      } else {
+        addToast({ type: "success", title: "Refresh queued" });
       }
     } catch (err: any) {
       setError(err.message);
     } finally {
       setRefreshingId(null);
+    }
+  }
+
+  async function handleRetryClone(id: number) {
+    setRetryingId(id);
+    try {
+      const result = await apiFetch<{ success: boolean; message: string }>(`/repos/${id}/retry-clone`, { method: "POST" });
+      if (result.success) {
+        // Update local state to show pending immediately
+        setRepos(repos.map(r => r.id === id ? { ...r, cloneStatus: "pending_clone", cloneError: null } : r));
+        addToast({ type: "success", title: "Clone retry queued" });
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setRetryingId(null);
     }
   }
 
@@ -121,6 +179,11 @@ export default function Repositories() {
     try {
       const result = await apiFetch<{ success: boolean; message: string; defaultBranch?: string }>(`/repos/${id}/test-connection`, { method: "POST" });
       setTestResults(prev => ({ ...prev, [id]: result }));
+      if (result.success) {
+        addToast({ type: "success", title: "Connection successful" });
+      } else {
+        addToast({ type: "error", title: "Connection failed", description: result.message });
+      }
     } catch (err: any) {
       setTestResults(prev => ({ ...prev, [id]: { success: false, message: err.message } }));
     } finally {
@@ -162,48 +225,89 @@ export default function Repositories() {
         </Card>
       ) : (
         <div className="grid gap-4">
-          {repos.map(repo => (
-            <Card key={repo.id}>
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <CardTitle className="flex items-center gap-2">
-                      {repo.name}
-                      <Badge variant={repo.enabled ? "success" : "secondary"}>
-                        {repo.enabled ? "Enabled" : "Disabled"}
-                      </Badge>
-                      {testResults[repo.id] && (
-                        <Badge variant={testResults[repo.id].success ? "success" : "destructive"} className="text-[10px]">
-                          {testResults[repo.id].success ? <Check className="size-2.5 mr-0.5" /> : <X className="size-2.5 mr-0.5" />}
-                          {testResults[repo.id].success ? "Connected" : "Failed"}
+          {repos.map(repo => {
+            const isTesting = testingId === repo.id;
+            const displayStatus = isTesting ? "testing" : repo.cloneStatus;
+            const displayCfg = cloneStatusConfig[displayStatus] || cloneStatusConfig.pending_clone;
+            const DisplayIcon = displayCfg.icon;
+
+            return (
+              <Card key={repo.id}>
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between">
+                    <div className="min-w-0 flex-1">
+                      <CardTitle className="flex items-center gap-2">
+                        <span className="truncate">{repo.name}</span>
+                        <Badge variant={displayCfg.variant} className="flex items-center gap-1 shrink-0">
+                          {displayCfg.label === "Cloning..." || displayCfg.label === "Syncing..." || displayCfg.label === "Connecting..." ? (
+                            <DisplayIcon className="size-3 animate-spin" />
+                          ) : (
+                            <DisplayIcon className="size-3" />
+                          )}
+                          {displayCfg.label}
                         </Badge>
+                        {testResults[repo.id] && !isTesting && (
+                          <Badge variant={testResults[repo.id].success ? "success" : "destructive"}>
+                            {testResults[repo.id].success ? <Check className="size-2.5 mr-0.5" /> : <X className="size-2.5 mr-0.5" />}
+                            {testResults[repo.id].success ? "Connected" : "Failed"}
+                          </Badge>
+                        )}
+                        <Badge variant={repo.enabled ? "success" : "secondary"}>
+                          {repo.enabled ? "Enabled" : "Disabled"}
+                        </Badge>
+                      </CardTitle>
+                      <p className="text-sm text-muted-foreground mt-1 font-mono truncate">{repo.remoteUrl}</p>
+                      {repo.cloneStatus === "connected" && (
+                        <p className="text-xs text-muted-foreground/60 mt-0.5 font-mono truncate">{repo.localPath}</p>
                       )}
-                    </CardTitle>
-                    <p className="text-sm text-muted-foreground mt-1 font-mono">{repo.remoteUrl}</p>
-                    <p className="text-xs text-muted-foreground/60 mt-0.5 font-mono">{repo.localPath}</p>
-                    {testResults[repo.id] && !testResults[repo.id].success && (
-                      <p className="text-xs text-destructive mt-1">{testResults[repo.id].message}</p>
+                      {repo.cloneStatus === "failed" && repo.cloneError && (
+                        <p className="text-xs text-destructive mt-1">{repo.cloneError}</p>
+                      )}
+                      {testResults[repo.id] && !testResults[repo.id].success && !isTesting && (
+                        <p className="text-xs text-destructive mt-1">{testResults[repo.id].message}</p>
+                      )}
+                    </div>
+                    <div className="flex gap-1 shrink-0 ml-3">
+                      {repo.cloneStatus === "connected" && (
+                        <Button variant="ghost" size="icon" onClick={() => handleRefresh(repo.id)} disabled={refreshingId === repo.id} title="Pull latest">
+                          <RefreshCw className={`h-4 w-4 ${refreshingId === repo.id ? 'animate-spin' : ''}`} />
+                        </Button>
+                      )}
+                      {repo.cloneStatus === "failed" && (
+                        <Button variant="ghost" size="icon" onClick={() => handleRetryClone(repo.id)} disabled={retryingId === repo.id} title="Retry clone">
+                          {retryingId === repo.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                        </Button>
+                      )}
+                      <Button variant="ghost" size="icon" onClick={() => handleTestConnection(repo.id)} disabled={testingId === repo.id || repo.cloneStatus === "pending_clone" || repo.cloneStatus === "cloning"} title="Test connection">
+                        {testingId === repo.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link className="h-4 w-4" />}
+                      </Button>
+                      <Button variant="ghost" size="icon" onClick={() => openEdit(repo)} title="Edit">
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" onClick={() => handleDelete(repo.id)} title="Delete">
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="flex flex-wrap gap-4 text-sm">
+                    <span><strong>Authors:</strong> {JSON.parse(repo.authorNames || "[]").length}</span>
+                    {repo.lastClonedAt && (
+                      <span className="text-muted-foreground">
+                        <strong>Last cloned:</strong> {new Date(repo.lastClonedAt).toLocaleDateString()}
+                      </span>
+                    )}
+                    {repo.lastSyncedAt && (
+                      <span className="text-muted-foreground">
+                        <strong>Last synced:</strong> {new Date(repo.lastSyncedAt).toLocaleDateString()}
+                      </span>
                     )}
                   </div>
-                  <div className="flex gap-1">
-                    <Button variant="ghost" size="icon" onClick={() => handleRefresh(repo.id)} disabled={refreshingId === repo.id} title="Pull latest">
-                      <RefreshCw className={`h-4 w-4 ${refreshingId === repo.id ? 'animate-spin' : ''}`} />
-                    </Button>
-                    <Button variant="ghost" size="icon" onClick={() => handleTestConnection(repo.id)} disabled={testingId === repo.id} title="Test connection">
-                      {testingId === repo.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link className="h-4 w-4" />}
-                    </Button>
-                    <Button variant="ghost" size="icon" onClick={() => openEdit(repo)}><Pencil className="h-4 w-4" /></Button>
-                    <Button variant="ghost" size="icon" onClick={() => handleDelete(repo.id)}><Trash2 className="h-4 w-4" /></Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="pt-0">
-                <div className="flex flex-wrap gap-4 text-sm">
-                  <span><strong>Authors:</strong> {JSON.parse(repo.authorNames || "[]").length}</span>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
 

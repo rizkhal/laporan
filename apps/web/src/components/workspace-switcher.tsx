@@ -23,6 +23,41 @@ export function WorkspaceSwitcher() {
   const [createOpen, setCreateOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  // Click-outside handler
+  useEffect(() => {
+    if (!open) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(e.target as Node) &&
+        triggerRef.current &&
+        !triggerRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+      }
+    };
+    // Use setTimeout to avoid the trigger click immediately closing
+    const timer = setTimeout(() => {
+      document.addEventListener("mousedown", handleClickOutside);
+    }, 0);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [open]);
+
+  // Close on Escape
+  useEffect(() => {
+    if (!open) return;
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [open]);
 
   // Focus search when dropdown opens
   useEffect(() => {
@@ -62,6 +97,7 @@ export function WorkspaceSwitcher() {
     <>
       {/* Trigger button */}
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen(true)}
         className="group flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors hover:bg-muted/70 dark:hover:bg-white/[0.05]"
@@ -75,13 +111,9 @@ export function WorkspaceSwitcher() {
         <ChevronDown className="size-3.5 shrink-0 text-muted-foreground transition-transform group-hover:translate-y-0.5" />
       </button>
 
-      {/* Dropdown overlay */}
-      {open && (
-        <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-      )}
-
       {/* Dropdown */}
       <div
+        ref={dropdownRef}
         className={cn(
           "fixed left-4 top-[60px] z-50 w-72 overflow-hidden rounded-xl border border-border bg-popover shadow-xl shadow-popover/15 transition-all duration-150 sm:left-auto sm:ml-1.5",
           open ? "scale-100 opacity-100" : "pointer-events-none scale-95 opacity-0",

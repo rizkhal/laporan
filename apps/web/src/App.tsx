@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./lib/auth";
+import { ToastProvider } from "./components/toast";
 import { ProtectedRoute } from "./lib/protected-route";
 import { Layout } from "./components/layout";
 import Login from "./pages/Login";
@@ -13,6 +14,7 @@ import SettingsPage from "./pages/Settings";
 export default function App() {
   return (
     <AuthProvider>
+      <ToastProvider>
       <Routes>
         {/* Public routes */}
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
@@ -26,6 +28,7 @@ export default function App() {
         <Route path="/collections/:id" element={<ProtectedRoute><Layout><CollectionDetail /></Layout></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute><Layout><SettingsPage /></Layout></ProtectedRoute>} />
       </Routes>
+      </ToastProvider>
     </AuthProvider>
   );
 }

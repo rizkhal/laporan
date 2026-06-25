@@ -207,6 +207,47 @@ export function runMigration(): void {
     }
 
     console.log("✅ Workspace migration check complete");
+
+    // 11. Add clone status columns to repositories
+    try {
+      const repoCols = sqlite!.prepare("PRAGMA table_info(repositories)").all() as any[];
+      const hasCloneStatus = repoCols.some((c: any) => c.name === "clone_status");
+      if (!hasCloneStatus) {
+        sqlite!.exec("ALTER TABLE repositories ADD COLUMN clone_status TEXT NOT NULL DEFAULT 'connected';");
+        sqlite!.exec("ALTER TABLE repositories ADD COLUMN clone_error TEXT;");
+        sqlite!.exec("ALTER TABLE repositories ADD COLUMN last_cloned_at TEXT;");
+        sqlite!.exec("ALTER TABLE repositories ADD COLUMN last_synced_at TEXT;");
+        // Update existing repos to connected since they are already cloned
+        sqlite!.exec("UPDATE repositories SET clone_status = 'connected' WHERE clone_status = 'pending_clone';");
+        console.log("  → Added clone status columns to repositories");
+      }
+    } catch (err: any) {
+      console.log(`  ⚠️ Repositories clone status migration skipped: ${err.message}`);
+    }
+
+    // 12. Create jobs table
+    try {
+      sqlite!.exec(`
+        CREATE TABLE IF NOT EXISTS jobs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+          type TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'queued',
+          progress INTEGER NOT NULL DEFAULT 0,
+          message TEXT NOT NULL DEFAULT '',
+          payload TEXT NOT NULL DEFAULT '{}',
+          result TEXT,
+          error TEXT,
+          started_at TEXT,
+          completed_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+      `);
+      console.log("  → Created jobs table");
+    } catch (err: any) {
+      console.log(`  ⚠️ Jobs table creation skipped: ${err.message}`);
+    }
 } catch (err: any) {
   console.error("❌ Workspace migration error:", err.message);
 } finally {

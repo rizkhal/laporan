@@ -8,9 +8,9 @@ import { HTTPException } from "hono/http-exception";
 import {
   generateSshKey,
   getFingerprint,
-  testGitHubConnection,
   deleteSshKeyFiles,
 } from "../services/ssh-key";
+import { testGitHubConnection } from "../services/git-ssh";
 
 const router = new Hono();
 
@@ -377,7 +377,7 @@ router.post("/:id/ssh-key/test-github", async (c) => {
     });
   }
 
-  const result = testGitHubConnection(workspaceId);
+  const result = await testGitHubConnection(workspaceId);
   return c.json(result);
 });
 

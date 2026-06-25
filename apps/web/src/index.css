@@ -2,94 +2,134 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * Keep the palette in ordinary CSS variables so theme changes cascade at
+ * runtime. The Tailwind theme variables below must reference these tokens;
+ * literal values inside `@theme inline` are compiled into fixed light colors.
+ */
+:root {
+  --background: hsl(220 20% 98%);
+  --foreground: hsl(222 28% 10%);
+  --card: hsl(0 0% 100%);
+  --card-foreground: hsl(222 28% 10%);
+  --popover: hsl(0 0% 100%);
+  --popover-foreground: hsl(222 28% 10%);
+  --primary: hsl(217 72% 50%);
+  --primary-foreground: hsl(0 0% 100%);
+  --secondary: hsl(220 17% 94%);
+  --secondary-foreground: hsl(222 22% 18%);
+  --muted: hsl(220 17% 94%);
+  --muted-foreground: hsl(218 10% 44%);
+  --accent: hsl(220 17% 94%);
+  --accent-foreground: hsl(222 22% 18%);
+  --destructive: hsl(0 67% 48%);
+  --destructive-foreground: hsl(0 0% 100%);
+  --success: hsl(152 56% 38%);
+  --success-foreground: hsl(152 40% 22%);
+  --warning: hsl(32 85% 50%);
+  --warning-foreground: hsl(32 60% 28%);
+  --border: hsl(220 14% 88%);
+  --input: hsl(220 14% 84%);
+  --ring: hsl(217 72% 50%);
+  --overlay: hsl(225 15% 10% / 0.55);
+}
+
+.dark {
+  --background: hsl(225 13% 9%);
+  --foreground: hsl(220 14% 94%);
+  --card: hsl(225 12% 12%);
+  --card-foreground: hsl(220 14% 94%);
+  --popover: hsl(225 12% 11%);
+  --popover-foreground: hsl(220 14% 94%);
+  --primary: hsl(216 78% 62%);
+  --primary-foreground: hsl(220 20% 98%);
+  --secondary: hsl(225 10% 16%);
+  --secondary-foreground: hsl(220 13% 91%);
+  --muted: hsl(225 10% 16%);
+  --muted-foreground: hsl(220 10% 72%);
+  --accent: hsl(225 10% 19%);
+  --accent-foreground: hsl(220 14% 95%);
+  --destructive: hsl(0 66% 55%);
+  --destructive-foreground: hsl(0 0% 100%);
+  --success: hsl(148 60% 55%);
+  --success-foreground: hsl(148 50% 88%);
+  --warning: hsl(32 88% 60%);
+  --warning-foreground: hsl(32 80% 90%);
+  --border: hsl(225 9% 21%);
+  --input: hsl(225 9% 26%);
+  --ring: hsl(216 78% 62%);
+  --overlay: hsl(0 0% 0% / 0.65);
+}
+
 @theme inline {
-  --color-background: hsl(220 20% 98%);
-  --color-foreground: hsl(222 28% 10%);
-  --color-card: hsl(0 0% 100%);
-  --color-card-foreground: hsl(222 28% 10%);
-  --color-popover: hsl(0 0% 100%);
-  --color-popover-foreground: hsl(222 28% 10%);
-  --color-primary: hsl(217 72% 50%);
-  --color-primary-foreground: hsl(0 0% 100%);
-  --color-secondary: hsl(220 17% 94%);
-  --color-secondary-foreground: hsl(222 22% 18%);
-  --color-muted: hsl(220 17% 94%);
-  --color-muted-foreground: hsl(218 10% 44%);
-  --color-accent: hsl(220 17% 94%);
-  --color-accent-foreground: hsl(222 22% 18%);
-  --color-destructive: hsl(0 67% 48%);
-  --color-destructive-foreground: hsl(0 0% 100%);
-  --color-success: hsl(152 56% 38%);
-  --color-success-foreground: hsl(152 40% 22%);
-  --color-warning: hsl(32 85% 50%);
-  --color-warning-foreground: hsl(32 60% 28%);
-  --color-border: hsl(220 14% 88%);
-  --color-input: hsl(220 14% 84%);
-  --color-ring: hsl(217 72% 50%);
-  --color-overlay: hsl(225 15% 10% / 0.55);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-overlay: var(--overlay);
   --radius-sm: 0.5rem;
   --radius-md: 0.625rem;
   --radius-lg: 0.75rem;
   --radius-xl: 1rem;
 }
 
-.dark {
-  --color-background: hsl(225 13% 9%);
-  --color-foreground: hsl(220 14% 94%);
-  --color-card: hsl(225 12% 12%);
-  --color-card-foreground: hsl(220 14% 94%);
-  --color-popover: hsl(225 12% 11%);
-  --color-popover-foreground: hsl(220 14% 94%);
-  --color-primary: hsl(216 78% 62%);
-  --color-primary-foreground: hsl(220 20% 98%);
-  --color-secondary: hsl(225 10% 16%);
-  --color-secondary-foreground: hsl(220 13% 91%);
-  --color-muted: hsl(225 10% 16%);
-  --color-muted-foreground: hsl(220 10% 72%);
-  --color-accent: hsl(225 10% 19%);
-  --color-accent-foreground: hsl(220 14% 95%);
-  --color-destructive: hsl(0 66% 55%);
-  --color-destructive-foreground: hsl(0 0% 100%);
-  --color-success: hsl(148 60% 55%);
-  --color-success-foreground: hsl(148 50% 88%);
-  --color-warning: hsl(32 88% 60%);
-  --color-warning-foreground: hsl(32 80% 90%);
-  --color-border: hsl(225 9% 21%);
-  --color-input: hsl(225 9% 26%);
-  --color-ring: hsl(216 78% 62%);
-  --color-overlay: hsl(0 0% 0% / 0.65);
-}
-
 @layer base {
-  * { border-color: var(--color-border); }
+  * { border-color: var(--border); }
   html {
+    min-height: 100%;
+    background-color: var(--background);
     color-scheme: light;
     scroll-behavior: smooth;
   }
   html.dark { color-scheme: dark; }
   body {
     margin: 0;
+    min-height: 100%;
     min-width: 320px;
-    background-color: var(--color-background);
-    color: var(--color-foreground);
+    background-color: var(--background);
+    color: var(--foreground);
     font-family: "Geist", "SF Pro Text", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
     font-feature-settings: "rlig" 1, "calt" 1, "tnum" 1;
     text-rendering: optimizeLegibility;
   }
   button, a, input, textarea, select { -webkit-tap-highlight-color: transparent; }
   input, textarea, select {
-    color: var(--color-foreground);
-    caret-color: var(--color-primary);
+    color: var(--foreground);
+    caret-color: var(--primary);
   }
   select, option {
-    background-color: var(--color-card);
-    color: var(--color-card-foreground);
+    background-color: var(--card);
+    color: var(--card-foreground);
   }
   input[type="checkbox"], input[type="radio"] {
-    accent-color: var(--color-primary);
+    accent-color: var(--primary);
   }
   button:active, a:active { transform: translateY(1px); }
-  ::selection { background: color-mix(in srgb, var(--color-primary) 22%, transparent); }
+  ::selection { background: color-mix(in srgb, var(--primary) 22%, transparent); }
+  #root {
+    min-height: 100dvh;
+    background-color: var(--background);
+    color: var(--foreground);
+  }
 }
 
 .dark body {
@@ -99,13 +139,13 @@
   background-attachment: fixed;
 }
 
-.skip-link { position: fixed; left: 1rem; top: -4rem; z-index: 100; border-radius: .5rem; background: var(--color-foreground); color: var(--color-background); padding: .65rem 1rem; font-size: .875rem; }
+.skip-link { position: fixed; left: 1rem; top: -4rem; z-index: 100; border-radius: .5rem; background: var(--foreground); color: var(--background); padding: .65rem 1rem; font-size: .875rem; }
 .skip-link:focus { top: 1rem; }
 
 .surface {
-  border: 1px solid color-mix(in srgb, var(--color-border) 78%, transparent);
-  background: var(--color-card);
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--color-foreground) 4%, transparent), 0 10px 34px color-mix(in srgb, var(--color-foreground) 3%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  background: var(--card);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--foreground) 4%, transparent), 0 10px 34px color-mix(in srgb, var(--foreground) 3%, transparent);
 }
 .dark .surface {
   border-color: hsl(225 9% 22% / 0.78);
@@ -131,17 +171,17 @@
   color: hsl(220 10% 72%);
 }
 
-.skeleton { position: relative; overflow: hidden; background: var(--color-muted); }
-.skeleton::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-foreground) 6%, transparent), transparent); animation: shimmer 1.5s infinite; }
+.skeleton { position: relative; overflow: hidden; background: var(--muted); }
+.skeleton::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--foreground) 6%, transparent), transparent); animation: shimmer 1.5s infinite; }
 
 .report-prose h1 { margin: 0 0 1.5rem; font-size: 1.875rem; line-height: 1.2; letter-spacing: -.035em; }
 .report-prose h2 { margin: 2rem 0 .75rem; font-size: 1.2rem; line-height: 1.3; letter-spacing: -.02em; }
 .report-prose h3 { margin: 1.5rem 0 .5rem; font-size: 1rem; }
-.report-prose p { margin: .75rem 0; line-height: 1.75; color: var(--color-muted-foreground); }
-.report-prose li { margin: .4rem 0; line-height: 1.65; color: var(--color-muted-foreground); }
+.report-prose p { margin: .75rem 0; line-height: 1.75; color: var(--muted-foreground); }
+.report-prose li { margin: .4rem 0; line-height: 1.65; color: var(--muted-foreground); }
 .report-prose ul { margin: .75rem 0; padding-left: 1.25rem; list-style: disc; }
-.report-prose strong { color: var(--color-foreground); font-weight: 600; }
-.report-prose code { border-radius: .35rem; background: var(--color-muted); padding: .15rem .35rem; font-family: ui-monospace, monospace; font-size: .82em; }
+.report-prose strong { color: var(--foreground); font-weight: 600; }
+.report-prose code { border-radius: .35rem; background: var(--muted); padding: .15rem .35rem; font-family: ui-monospace, monospace; font-size: .82em; }
 
 /* Diff / patch syntax highlighting */
 .diff-block {

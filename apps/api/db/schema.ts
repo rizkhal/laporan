@@ -62,6 +62,10 @@ export const repositories = sqliteTable("repositories", {
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   authorNames: text("author_names").notNull(), // JSON array
   authorEmails: text("author_emails").notNull(), // JSON array
+  cloneStatus: text("clone_status").notNull().default("pending_clone"), // pending_clone, cloning, connected, failed, syncing
+  cloneError: text("clone_error"),
+  lastClonedAt: text("last_cloned_at"),
+  lastSyncedAt: text("last_synced_at"),
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
   updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
 });
@@ -148,6 +152,23 @@ export const reports = sqliteTable("reports", {
   title: text("title").notNull(),
   content: text("content").notNull(), // Markdown
   isEdited: integer("is_edited", { mode: "boolean" }).notNull().default(false),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
+});
+
+// ── Background Jobs ──
+export const jobs = sqliteTable("jobs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: integer("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  type: text("type").notNull(),
+  status: text("status").notNull().default("queued"),
+  progress: integer("progress").notNull().default(0),
+  message: text("message").notNull().default(""),
+  payload: text("payload").notNull().default("{}"),
+  result: text("result"),
+  error: text("error"),
+  startedAt: text("started_at"),
+  completedAt: text("completed_at"),
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
   updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
 });

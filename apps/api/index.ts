@@ -10,6 +10,7 @@ import { analysesRouter } from "./routes/analyses";
 import { collectionDetailRouter } from "./routes/collection-detail";
 import { authRouter } from "./routes/auth";
 import { workspacesRouter } from "./routes/workspaces";
+import { jobsRouter } from "./routes/jobs";
 import { runMigration } from "./db/migrate-workspaces";
 
 // Run migration on startup (idempotent - safe to run every time)
@@ -42,6 +43,7 @@ app.route("/api/reports", reportsRouter);
 app.route("/api/analyses", analysesRouter);
 app.route("/api/auth", authRouter);
 app.route("/api/workspaces", workspacesRouter);
+app.route("/api/jobs", jobsRouter);
 
 app.get("/api/health", (c) => c.json({ status: "ok" }));
 
@@ -52,6 +54,6 @@ serve({
   port,
 });
 
-console.log(`✓ Server running on http://localhost:${port}`);
+console.log(`✅ Server running on http://localhost:${port}`);
 
 export default app;

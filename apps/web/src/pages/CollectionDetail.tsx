@@ -7,10 +7,12 @@ import { apiFetch } from "../lib/utils";
 import {
   ArrowLeft, ArrowRight, Bot, Check, ChevronDown, ChevronRight, Clipboard,
   Download, ExternalLink, FileCode2, FileText, GitBranch, GitCommit,
-  Loader2, Pencil, Save, Sparkles,
+  Loader2, Pencil, Save, Settings2, Sparkles,
 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
+import { Label } from "../components/ui/label";
 
-interface Collection { id: number; year: number; month: number; title: string; status: string; repoIds?: string | null; }
+interface Collection { id: number; year: number; month: number; title: string; status: string; repoIds: number[] | null; }
 interface Commit {
   id: number; repoId: number; hash: string; authorName: string; date: string; message: string;
   filesChanged: number; insertions: number; deletions: number; patchSnippets: string; changedFiles: string;
@@ -50,6 +52,8 @@ export default function CollectionDetail() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<"collect" | "analyze" | "report" | "save" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [repoEditOpen, setRepoEditOpen] = useState(false);
+  const [editRepoIds, setEditRepoIds] = useState<number[] | null>(null);
 
   async function loadAll() {
     try {
@@ -69,8 +73,14 @@ export default function CollectionDetail() {
       setProviders(providerData);
       setReport(reportData);
       setReportDraft(reportData?.content || "");
-      if (!selectedRepo && repoData[0]) setSelectedRepo(repoData[0].id);
+      if (!selectedRepo) {
+        const firstRepo = collectionData?.repoIds
+          ? repoData.find((r) => collectionData.repoIds?.includes(r.id))
+          : repoData[0];
+        if (firstRepo) setSelectedRepo(firstRepo.id);
+      }
       if (!selectedLlmId && providerData[0]) setSelectedLlmId(providerData[0].id);
+      setEditRepoIds(collectionData.repoIds);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -120,7 +130,24 @@ export default function CollectionDetail() {
     }
   }
 
-  function exportMarkdown() {
+  async function handleSaveRepos() {
+    if (!collection) return;
+    try {
+      setBusy("save");
+      await apiFetch(`/collections/${collectionId}`, {
+        method: "PUT",
+        body: JSON.stringify({ repoIds: editRepoIds }),
+      });
+      setCollection({ ...collection, repoIds: editRepoIds });
+      setRepoEditOpen(false);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function exportMarkdown() {
     const blob = new Blob([reportDraft], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -212,11 +239,16 @@ export default function CollectionDetail() {
             <Metric label="Deletions" value={`-${totalDeletions}`} tone="negative" icon={ArrowRight} />
           </div>
 
-          <div className="grid gap-5 xl:grid-cols-[280px_1fr]">
-            <aside className="surface h-fit rounded-xl p-3">
-              <p className="px-2 pb-2 text-xs font-medium text-muted-foreground">Repository summaries</p>
+          <div className="grid gap-5 xl:grid-cols-[280px_1fr] items-start">
+            <aside className="surface sticky top-24 rounded-xl p-3">
+              <div className="flex items-center justify-between px-2 pb-2">
+                <p className="text-xs font-medium text-muted-foreground">Repository summaries</p>
+                <button type="button" onClick={() => { setEditRepoIds(collection?.repoIds ?? null); setRepoEditOpen(true); }} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+                  <Settings2 className="size-3" />
+                </button>
+              </div>
               <div className="space-y-1">
-                {repos.map((repo) => {
+                {(collection?.repoIds ? repos.filter((r) => collection.repoIds?.includes(r.id)) : repos).filter(Boolean).map((repo) => {
                   const repoCommits = commits.filter((commit) => commit.repoId === repo.id);
                   const insertions = repoCommits.reduce((total, commit) => total + commit.insertions, 0);
                   const deletions = repoCommits.reduce((total, commit) => total + commit.deletions, 0);
@@ -327,6 +359,38 @@ export default function CollectionDetail() {
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Edit repos dialog */}
+      <Dialog open={repoEditOpen} onOpenChange={setRepoEditOpen}>
+        <DialogContent className="max-w-md rounded-2xl">
+          <DialogHeader><DialogTitle>Edit repositories</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <button type="button" onClick={() => setEditRepoIds(null)} className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left ${editRepoIds === null ? "border-primary/40 bg-primary/5" : "hover:bg-muted"}`}>
+              <GitBranch className="size-4 text-muted-foreground" />
+              <span className="text-sm font-medium">All enabled repositories</span>
+              <span className="ml-auto font-mono text-xs text-muted-foreground">{repos.length}</span>
+            </button>
+            <div className="grid max-h-52 gap-2 overflow-y-auto">
+              {repos.map((repo) => {
+                const checked = editRepoIds?.includes(repo.id) || false;
+                return (
+                  <label key={repo.id} className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-muted">
+                    <input type="checkbox" checked={checked} onChange={() => setEditRepoIds((current) => current === null ? [repo.id] : checked ? current.filter((id) => id !== repo.id) : [...current, repo.id])} className="size-4 rounded border-input bg-card" />
+                    <span className="text-sm">{repo.name}</span>
+                    <span className="ml-auto text-xs text-muted-foreground">{repo.category}</span>
+                  </label>
+                );
+              })}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setRepoEditOpen(false)}>Cancel</Button>
+              <Button onClick={handleSaveRepos} disabled={busy === "save" || editRepoIds?.length === 0}>
+                {busy === "save" && <Loader2 className="animate-spin" />} Save
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
