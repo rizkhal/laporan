@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { db } from "../db/index";
 import * as schema from "../db/schema";
-import { eq, inArray } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
@@ -199,6 +199,84 @@ router.put("/profile", async (c) => {
       return c.json({ error: err.errors[0].message }, 400);
     }
     return c.json({ error: err.message || "Update failed" }, 500);
+  }
+});
+
+// Delete account (permanently)
+router.delete("/account", async (c) => {
+  try {
+    const ctx = requireAuth(c);
+    const body = await c.req.json().catch(() => ({}));
+    const parsed = z.object({ password: z.string().min(1) }).parse(body);
+
+    // Verify password
+    const user = db.select().from(schema.users).where(eq(schema.users.id, ctx.user.id)).get();
+    if (!user) return c.json({ error: "User not found" }, 404);
+
+    const valid = await bcrypt.compare(parsed.password, user.passwordHash);
+    if (!valid) return c.json({ error: "Invalid password" }, 403);
+
+    // 1. Delete all sessions for this user
+    db.delete(schema.sessions).where(eq(schema.sessions.userId, ctx.user.id)).run();
+
+    // 2. Find all workspaces the user is a member of
+    const memberships = db
+      .select()
+      .from(schema.workspaceMembers)
+      .where(eq(schema.workspaceMembers.userId, ctx.user.id))
+      .all();
+
+    // 3. For workspaces where user is owner, delete all workspace data
+    const ownedWorkspaceIds = memberships.filter(m => m.role === "owner").map(m => m.workspaceId);
+    for (const wsId of ownedWorkspaceIds) {
+      // SSH keys
+      db.delete(schema.sshKeys).where(eq(schema.sshKeys.workspaceId, wsId)).run();
+
+      // Collections and their children
+      const wsCollections = db.select().from(schema.collections).where(eq(schema.collections.workspaceId, wsId)).all();
+      for (const col of wsCollections) {
+        db.delete(schema.commits).where(eq(schema.commits.collectionId, col.id)).run();
+        db.delete(schema.analyses).where(eq(schema.analyses.collectionId, col.id)).run();
+        db.delete(schema.reports).where(eq(schema.reports.collectionId, col.id)).run();
+      }
+      db.delete(schema.collections).where(eq(schema.collections.workspaceId, wsId)).run();
+
+      // Repositories
+      db.delete(schema.repositories).where(eq(schema.repositories.workspaceId, wsId)).run();
+
+      // LLM providers
+      db.delete(schema.llmProviders).where(eq(schema.llmProviders.workspaceId, wsId)).run();
+
+      // Categories
+      db.delete(schema.categories).where(eq(schema.categories.workspaceId, wsId)).run();
+
+      // Report templates
+      db.delete(schema.reportTemplates).where(eq(schema.reportTemplates.workspaceId, wsId)).run();
+
+      // Workspace members for this workspace
+      db.delete(schema.workspaceMembers).where(eq(schema.workspaceMembers.workspaceId, wsId)).run();
+
+      // The workspace itself
+      db.delete(schema.workspaces).where(eq(schema.workspaces.id, wsId)).run();
+    }
+
+    // 4. For workspaces where user is NOT owner, just remove the membership
+    const memberOnlyIds = memberships.filter(m => m.role !== "owner").map(m => m.workspaceId);
+    for (const wsId of memberOnlyIds) {
+      db.delete(schema.workspaceMembers)
+        .where(and(eq(schema.workspaceMembers.workspaceId, wsId), eq(schema.workspaceMembers.userId, ctx.user.id)))
+        .run();
+    }
+
+    // 5. Finally delete the user
+    db.delete(schema.users).where(eq(schema.users.id, ctx.user.id)).run();
+
+    return c.json({ success: true });
+  } catch (err: any) {
+    if (err instanceof z.ZodError) {
+      return c.json({ error: err.errors[0].message }, 400);
+    }
+    return c.json({ error: err.message || "Account deletion failed" }, 500);
   }
 });
 

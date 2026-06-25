@@ -157,8 +157,8 @@ router.put("/:id", async (c) => {
   });
 });
 
-// Delete workspace
-router.delete("/:id", (c) => {
+// Delete workspace (cascading delete)
+router.delete("/:id", async (c) => {
   const { user } = requireUser(c);
   const id = parseInt(c.req.param("id"));
 
@@ -173,7 +173,51 @@ router.delete("/:id", (c) => {
     throw new HTTPException(403, { message: "Only the workspace owner can delete" });
   }
 
+  // Explicit cascading delete to ensure all data is cleaned up
+  // regardless of SQLite foreign key enforcement
+
+  // 1. Delete SSH keys
+  db.delete(schema.sshKeys).where(eq(schema.sshKeys.workspaceId, id)).run();
+
+  // 2. Find all collections in this workspace for cascading deletes
+  const workspaceCollections = db.select().from(schema.collections).where(eq(schema.collections.workspaceId, id)).all();
+  const collectionIds = workspaceCollections.map(c => c.id);
+
+  if (collectionIds.length > 0) {
+    // Delete commits for all collections
+    for (const cid of collectionIds) {
+      db.delete(schema.commits).where(eq(schema.commits.collectionId, cid)).run();
+    }
+    // Delete analyses for all collections
+    for (const cid of collectionIds) {
+      db.delete(schema.analyses).where(eq(schema.analyses.collectionId, cid)).run();
+    }
+    // Delete reports for all collections
+    for (const cid of collectionIds) {
+      db.delete(schema.reports).where(eq(schema.reports.collectionId, cid)).run();
+    }
+    // Delete collections
+    db.delete(schema.collections).where(eq(schema.collections.workspaceId, id)).run();
+  }
+
+  // 3. Delete repositories
+  db.delete(schema.repositories).where(eq(schema.repositories.workspaceId, id)).run();
+
+  // 4. Delete LLM providers
+  db.delete(schema.llmProviders).where(eq(schema.llmProviders.workspaceId, id)).run();
+
+  // 5. Delete categories
+  db.delete(schema.categories).where(eq(schema.categories.workspaceId, id)).run();
+
+  // 6. Delete report templates
+  db.delete(schema.reportTemplates).where(eq(schema.reportTemplates.workspaceId, id)).run();
+
+  // 7. Delete workspace members
+  db.delete(schema.workspaceMembers).where(eq(schema.workspaceMembers.workspaceId, id)).run();
+
+  // 8. Finally delete the workspace itself
   db.delete(schema.workspaces).where(eq(schema.workspaces.id, id)).run();
+
   return c.json({ success: true });
 });
 

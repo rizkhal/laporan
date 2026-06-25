@@ -5,11 +5,11 @@ import { Textarea } from "../components/ui/textarea";
 import { Label } from "../components/ui/label";
 import { Badge } from "../components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
-import { apiFetch, cn } from "../lib/utils";
+import { apiFetch, apiUrl, cn } from "../lib/utils";
 import { useAuth } from "../lib/auth";
 import {
   Plus, Pencil, Trash2, Loader2, Bot, KeyRound, FileText, User, Save,
-  Building2, Hash, Check, X,
+  Building2, Hash, Check, X, AlertTriangle,
 } from "lucide-react";
 
 interface LLMProvider {
@@ -56,6 +56,15 @@ export default function SettingsPage() {
   const [llmForm, setLlmForm] = useState({ name: "", baseUrl: "", apiKey: "", model: "" });
   const [savingLlm, setSavingLlm] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
+
+  // Danger zone state
+  const [deleteWsDialogOpen, setDeleteWsDialogOpen] = useState(false);
+  const [deleteWsLoading, setDeleteWsLoading] = useState(false);
+  const [deleteWsError, setDeleteWsError] = useState<string | null>(null);
+  const [deleteAcctDialogOpen, setDeleteAcctDialogOpen] = useState(false);
+  const [deleteAcctPassword, setDeleteAcctPassword] = useState("");
+  const [deleteAcctLoading, setDeleteAcctLoading] = useState(false);
+  const [deleteAcctError, setDeleteAcctError] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -130,6 +139,48 @@ export default function SettingsPage() {
     }
   }
 
+  async function handleDeleteWorkspace() {
+    if (!activeWorkspace) return;
+    setDeleteWsError(null);
+    setDeleteWsLoading(true);
+    try {
+      await apiFetch(`/workspaces/${activeWorkspace.id}`, { method: "DELETE" });
+      setDeleteWsDialogOpen(false);
+      // Navigate to dashboard and refresh
+      await refreshWorkspaces();
+      window.location.href = "/dashboard";
+    } catch (err: any) {
+      setDeleteWsError(err.message);
+    } finally {
+      setDeleteWsLoading(false);
+    }
+  }
+
+  async function handleDeleteAccount() {
+    setDeleteAcctError(null);
+    setDeleteAcctLoading(true);
+    try {
+      const token = localStorage.getItem("auth_token");
+      const res = await fetch(apiUrl("/auth/account"), {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ password: deleteAcctPassword }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Deletion failed" }));
+        throw new Error(err.error || "Deletion failed");
+      }
+      setDeleteAcctDialogOpen(false);
+      // Clear auth state
+      localStorage.removeItem("auth_token");
+      localStorage.removeItem("active_workspace");
+      window.location.href = "/login";
+    } catch (err: any) {
+      setDeleteAcctError(err.message);
+    } finally {
+      setDeleteAcctLoading(false);
+    }
+  }
   function openLlmForm(provider?: LLMProvider) {
     setEditingLlm(provider || null);
     setLlmForm(provider ? { name: provider.name, baseUrl: provider.baseUrl, apiKey: provider.apiKey, model: provider.model } : { name: "", baseUrl: "https://router.rizkal.space/v1", apiKey: "", model: "" });
@@ -259,6 +310,65 @@ export default function SettingsPage() {
                   </div>
                 </div>
               </div>
+
+              {/* Delete Account */}
+              <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-6">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h3 className="text-base font-semibold text-destructive">Delete Account</h3>
+                    <p className="mt-1 text-sm text-muted-foreground max-w-md">
+                      Permanently delete your account and all associated data. This action cannot be undone.
+                    </p>
+                  </div>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => setDeleteAcctDialogOpen(true)}
+                  >
+                    <Trash2 className="size-3.5" />
+                    Delete
+                  </Button>
+                </div>
+              </div>
+
+              <Dialog open={deleteAcctDialogOpen} onOpenChange={setDeleteAcctDialogOpen}>
+                <DialogContent className="max-w-sm">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2 text-destructive">
+                      <AlertTriangle className="size-5" />
+                      Delete Account
+                    </DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <p className="text-sm text-muted-foreground">
+                      This will permanently delete your account, all workspaces you own, and all associated data. This action cannot be undone.
+                    </p>
+                    <p className="text-sm font-medium">Enter your password to confirm:</p>
+                    <Input
+                      type="password"
+                      value={deleteAcctPassword}
+                      onChange={e => setDeleteAcctPassword(e.target.value)}
+                      placeholder="Your password"
+                      onKeyDown={e => { if (e.key === "Enter" && deleteAcctPassword && !deleteAcctLoading) handleDeleteAccount(); }}
+                    />
+                    {deleteAcctError && (
+                      <div className="rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">{deleteAcctError}</div>
+                    )}
+                    <div className="flex justify-end gap-2">
+                      <Button variant="outline" size="sm" onClick={() => { setDeleteAcctDialogOpen(false); setDeleteAcctPassword(""); setDeleteAcctError(null); }}>Cancel</Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        disabled={!deleteAcctPassword || deleteAcctLoading}
+                        onClick={handleDeleteAccount}
+                      >
+                        {deleteAcctLoading && <Loader2 className="size-3.5 animate-spin" />}
+                        Permanently Delete
+                      </Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
             </div>
           )}
 
@@ -381,6 +491,59 @@ export default function SettingsPage() {
                       </div>
                     </div>
                   ))}
+              {/* Delete Workspace */}
+              <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-6 mt-6">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h3 className="text-base font-semibold text-destructive">Delete Workspace</h3>
+                    <p className="mt-1 text-sm text-muted-foreground max-w-md">
+                      Permanently delete this workspace and all associated data. This action cannot be undone.
+                    </p>
+                  </div>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => setDeleteWsDialogOpen(true)}
+                  >
+                    <Trash2 className="size-3.5" />
+                    Delete
+                  </Button>
+                </div>
+              </div>
+
+              <Dialog open={deleteWsDialogOpen} onOpenChange={setDeleteWsDialogOpen}>
+                <DialogContent className="max-w-sm">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2 text-destructive">
+                      <AlertTriangle className="size-5" />
+                      Delete Workspace
+                    </DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <p className="text-sm text-muted-foreground">
+                      This will permanently delete this workspace, including all repositories, collections, analyses, reports, and settings. This action cannot be undone.
+                    </p>
+                    <p className="text-sm font-medium">
+                      Are you sure you want to delete <strong>{activeWorkspace?.name}</strong>?
+                    </p>
+                    {deleteWsError && (
+                      <div className="rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">{deleteWsError}</div>
+                    )}
+                    <div className="flex justify-end gap-2">
+                      <Button variant="outline" size="sm" onClick={() => { setDeleteWsDialogOpen(false); setDeleteWsError(null); }}>Cancel</Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        disabled={deleteWsLoading}
+                        onClick={handleDeleteWorkspace}
+                      >
+                        {deleteWsLoading && <Loader2 className="size-3.5 animate-spin" />}
+                        Delete Workspace
+                      </Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
                 </div>
               )}
 
