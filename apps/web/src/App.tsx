@@ -1,8 +1,7 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./lib/auth";
 import { ProtectedRoute } from "./lib/protected-route";
 import { Layout } from "./components/layout";
-import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
@@ -17,7 +16,7 @@ export default function App() {
     <AuthProvider>
       <Routes>
         {/* Public routes */}
-        <Route path="/" element={<Landing />} />
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
 

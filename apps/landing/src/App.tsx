@@ -1,9 +1,9 @@
-import { Link } from "react-router-dom";
-import { Button } from "../components/ui/Button";
-import { Badge } from "../components/ui/badge";
+import { Badge } from "./components/ui/Badge";
+import { Button } from "./components/ui/Button";
+import { cn, WEB_URL } from "./lib/utils";
 import {
-  ArrowRight, BarChart3, Bot, FileText, GitCommit, GitPullRequest,
-  LineChart, Sparkles, BookOpen, GitFork, Shield,
+  ArrowRight, Bot, FileText, GitCommit, GitPullRequest,
+  Sparkles, Shield,
 } from "lucide-react";
 
 const features = [
@@ -62,29 +62,29 @@ const steps = [
   },
 ];
 
-export default function Landing() {
+export default function App() {
   return (
     <div className="min-h-[100dvh] bg-background text-foreground">
 
-      {/* ── Navigation ── */}
+      {/* Navigation */}
       <header className="sticky top-0 z-30 border-b border-border/70 bg-background/88 backdrop-blur-xl">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-5">
-          <Link to="/" className="flex items-center gap-2.5">
+          <a href="/" className="flex items-center gap-2.5">
             <span className="grid size-8 place-items-center rounded-[10px] bg-primary text-white shadow-sm shadow-primary/20">
               <FileText className="size-4" strokeWidth={1.8} />
             </span>
             <span className="text-sm font-semibold tracking-[-0.02em]">Monthly Report</span>
-          </Link>
+          </a>
           <nav className="flex items-center gap-3">
-            <Link to="/login" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">Sign in</Link>
+            <a href={`${WEB_URL}/login`} className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">Sign in</a>
             <Button size="sm" asChild>
-              <Link to="/register">Get started <ArrowRight className="size-3.5" /></Link>
+              <a href={`${WEB_URL}/register`}>Get started <ArrowRight className="size-3.5" /></a>
             </Button>
           </nav>
         </div>
       </header>
 
-      {/* ── Hero ── */}
+      {/* Hero */}
       <section className="relative overflow-hidden border-b border-border/50">
         <div className="mx-auto max-w-6xl px-5 pt-20 pb-28 sm:pt-28 sm:pb-36">
           <div className="mx-auto max-w-3xl text-center">
@@ -99,25 +99,23 @@ export default function Landing() {
             </p>
             <div className="mt-8 flex items-center justify-center gap-3">
               <Button size="lg" asChild>
-                <Link to="/register">Get started <ArrowRight className="size-4" /></Link>
+                <a href={`${WEB_URL}/register`}>Get started <ArrowRight className="size-4" /></a>
               </Button>
               <Button variant="outline" size="lg" asChild>
-                <Link to="/login">Sign in</Link>
+                <a href={`${WEB_URL}/login`}>Sign in</a>
               </Button>
             </div>
           </div>
         </div>
-
-        {/* Subtle background gradient */}
         <div className="pointer-events-none absolute inset-x-0 -top-40 -z-10 h-96 bg-gradient-to-b from-primary/[0.04] to-transparent" />
       </section>
 
-      {/* ── Stats / Social Proof ── */}
+      {/* Stats */}
       <section className="border-b border-border/50">
         <div className="mx-auto max-w-6xl px-5 py-14">
           <div className="grid grid-cols-2 gap-8 sm:grid-cols-4">
             {[
-              { value: "3", label: "Phases", detail: "collect · analyze · report" },
+              { value: "3", label: "Phases", detail: "collect analyze report" },
               { value: "74+", label: "Commits", detail: "processed in tests" },
               { value: "SQLite", label: "Storage", detail: "zero-config database" },
               { value: "OpenAI", label: "Compatible", detail: "bring your own LLM" },
@@ -132,13 +130,13 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ── Features ── */}
+      {/* Features */}
       <section className="border-b border-border/50">
         <div className="mx-auto max-w-6xl px-5 py-20 sm:py-28">
           <div className="mx-auto max-w-2xl text-center">
             <h2 className="text-2xl font-semibold tracking-[-0.03em] sm:text-3xl">Everything you need for monthly reporting</h2>
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-              From raw Git history to polished executive reports — all in one place.
+              From raw Git history to polished executive reports in one place.
             </p>
           </div>
           <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -155,7 +153,7 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ── How it works ── */}
+      {/* How it works */}
       <section className="border-b border-border/50">
         <div className="mx-auto max-w-6xl px-5 py-20 sm:py-28">
           <div className="mx-auto max-w-2xl text-center">
@@ -171,9 +169,7 @@ export default function Landing() {
                   <div className="absolute left-5 top-8 hidden h-[calc(100%+1.5rem)] w-px bg-border lg:block" />
                 )}
                 <div className="relative z-10 flex items-start gap-4 lg:block">
-                  <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary/10 font-mono text-sm font-bold text-primary">
-                    {number}
-                  </span>
+                  <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary/10 font-mono text-sm font-bold text-primary">{number}</span>
                   <div className="lg:mt-4">
                     <h3 className="text-sm font-semibold">{title}</h3>
                     <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{description}</p>
@@ -185,7 +181,7 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ── Tech stack ── */}
+      {/* Tech stack */}
       <section className="border-b border-border/50">
         <div className="mx-auto max-w-6xl px-5 py-20 sm:py-24">
           <div className="mx-auto max-w-2xl text-center">
@@ -202,7 +198,7 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ── CTA ── */}
+      {/* CTA */}
       <section>
         <div className="mx-auto max-w-6xl px-5 py-20 sm:py-28">
           <div className="surface rounded-2xl px-6 py-16 text-center sm:px-16">
@@ -212,26 +208,24 @@ export default function Landing() {
             </p>
             <div className="mt-8 flex items-center justify-center gap-3">
               <Button size="lg" asChild>
-                <Link to="/register">Get started <ArrowRight className="size-4" /></Link>
+                <a href={`${WEB_URL}/register`}>Get started <ArrowRight className="size-4" /></a>
               </Button>
               <Button variant="outline" size="lg" asChild>
-                <Link to="/login">Sign in</Link>
+                <a href={`${WEB_URL}/login`}>Sign in</a>
               </Button>
             </div>
           </div>
         </div>
       </section>
 
-      {/* ── Footer ── */}
+      {/* Footer */}
       <footer className="border-t border-border/50">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-6">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <FileText className="size-3.5" />
             <span>Monthly Developer Report</span>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Built with Hono, React &middot; Drizzle ORM &middot; SQLite
-          </p>
+          <p className="text-xs text-muted-foreground">Built with Hono &middot; React &middot; Drizzle ORM &middot; SQLite</p>
         </div>
       </footer>
     </div>
