@@ -84,7 +84,11 @@ router.get("/:id/stats", (c) => {
   const analyses = db.select().from(schema.analyses).where(eq(schema.analyses.collectionId, id)).all();
 
   const repoIds = [...new Set(commits.map(c => c.repoId))];
-  const repos = repoIds.map(rid => db.select().from(schema.repositories).where(eq(schema.repositories.id, rid)).get()).filter(Boolean);
+  const repos = repoIds
+    .map(rid => db.select().from(schema.repositories)
+      .where(and(eq(schema.repositories.id, rid), eq(schema.repositories.workspaceId, ctx.workspace.id)))
+      .get())
+    .filter(Boolean);
 
   const totalCommits = commits.length;
   const totalFiles = commits.reduce((s, c) => s + c.filesChanged, 0);

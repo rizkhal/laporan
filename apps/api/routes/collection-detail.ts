@@ -37,7 +37,7 @@ router.post("/:id/collect", async (c) => {
 
   for (const repo of repos) {
     try {
-      const count = await collectRepoForCollection(repo.id, id);
+      const count = await collectRepoForCollection(repo.id, id, ctx.workspace.id);
       results.push({ repoId: repo.id, repoName: repo.name, commits: count });
       totalCommits += count;
     } catch (err: any) {
@@ -108,7 +108,7 @@ router.post("/:id/analyze", async (c) => {
 
   for (const repo of repos) {
     try {
-      await runAnalysisForRepo(id, repo.id, llmProviderId);
+      await runAnalysisForRepo(id, repo.id, ctx.workspace.id, llmProviderId);
       results.push({ repoId: repo.id, repoName: repo.name, status: "completed" });
     } catch (err: any) {
       results.push({ repoId: repo.id, repoName: repo.name, status: "failed", error: err.message });

@@ -30,7 +30,7 @@ router.post("/:collectionId/generate", async (c) => {
   db.update(schema.collections).set({ status: "generating" }).where(eq(schema.collections.id, collectionId)).run();
 
   try {
-    const content = await generateReport(collectionId);
+    const content = await generateReport(collectionId, ctx.workspace.id);
 
     // Upsert report
     const existing = db.select().from(schema.reports).where(eq(schema.reports.collectionId, collectionId)).get();

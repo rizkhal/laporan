@@ -8,12 +8,12 @@ interface LLMConfig {
   model: string;
 }
 
-function getLLMConfig(providerId?: number): LLMConfig {
+function getLLMConfig(workspaceId: number, providerId?: number): LLMConfig {
   let provider;
   if (providerId) {
-    provider = db.select().from(schema.llmProviders).where(eq(schema.llmProviders.id, providerId)).get();
+    provider = db.select().from(schema.llmProviders).where(and(eq(schema.llmProviders.id, providerId), eq(schema.llmProviders.workspaceId, workspaceId))).get();
   } else {
-    provider = db.select().from(schema.llmProviders).get();
+    provider = db.select().from(schema.llmProviders).where(eq(schema.llmProviders.workspaceId, workspaceId)).get();
   }
   if (!provider) {
     // Fallback to env
@@ -189,9 +189,10 @@ function repairJSON(raw: string): string {
 export async function analyzeCommits(
   commits: CommitInput[],
   repoName: string,
+  workspaceId: number,
   llmProviderId?: number
 ): Promise<AnalysisOutput> {
-  const config = getLLMConfig(llmProviderId);
+  const config = getLLMConfig(workspaceId, llmProviderId);
   const prompt = buildPrompt(commits, repoName);
 
   const response = await fetch(`${config.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
@@ -271,10 +272,11 @@ export async function analyzeCommits(
 export async function runAnalysisForRepo(
   collectionId: number,
   repoId: number,
+  workspaceId: number,
   llmProviderId?: number
 ): Promise<void> {
-  const repo = db.select().from(schema.repositories).where(eq(schema.repositories.id, repoId)).get();
-  if (!repo) throw new Error("Repository not found");
+  const repo = db.select().from(schema.repositories).where(and(eq(schema.repositories.id, repoId), eq(schema.repositories.workspaceId, workspaceId))).get();
+  if (!repo) throw new Error("Repository not found in this workspace");
 
   const commits = db
     .select()
@@ -330,7 +332,7 @@ export async function runAnalysisForRepo(
       patchSnippets: JSON.parse(c.patchSnippets || "[]"),
     }));
 
-    const result = await analyzeCommits(commitInputs, repo.name, llmProviderId);
+    const result = await analyzeCommits(commitInputs, repo.name, workspaceId, llmProviderId);
 
     db.update(schema.analyses)
       .set({

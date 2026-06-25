@@ -237,13 +237,14 @@ export async function collectCommits(
 export async function collectRepoForCollection(
   repoId: number,
   collectionId: number,
+  workspaceId: number,
 ) {
   const repo = db
     .select()
     .from(schema.repositories)
-    .where(eq(schema.repositories.id, repoId))
+    .where(and(eq(schema.repositories.id, repoId), eq(schema.repositories.workspaceId, workspaceId)))
     .get();
-  if (!repo) throw new Error("Repository not found");
+  if (!repo) throw new Error("Repository not found in this workspace");
 
   const collection = db
     .select()

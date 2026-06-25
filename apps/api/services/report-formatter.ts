@@ -60,14 +60,21 @@ function getDefaultTemplate(): string {
 `;
 }
 
-export function getTemplate(collectionId: number): string {
-  const template = db.select().from(schema.reportTemplates).where(eq(schema.reportTemplates.isDefault, true)).get();
+export function getTemplate(workspaceId: number): string {
+  const template = db
+    .select()
+    .from(schema.reportTemplates)
+    .where(and(eq(schema.reportTemplates.workspaceId, workspaceId), eq(schema.reportTemplates.isDefault, true)))
+    .get();
   return template?.content || getDefaultTemplate();
 }
 
-export async function generateReport(collectionId: number): Promise<string> {
+export async function generateReport(collectionId: number, workspaceId?: number): Promise<string> {
   const collection = db.select().from(schema.collections).where(eq(schema.collections.id, collectionId)).get();
   if (!collection) throw new Error("Collection not found");
+
+  // Use the collection's workspaceId if not explicitly provided
+  const wsId = workspaceId || collection.workspaceId;
 
   const analyses = db
     .select()
@@ -75,7 +82,13 @@ export async function generateReport(collectionId: number): Promise<string> {
     .where(eq(schema.analyses.collectionId, collectionId))
     .all();
 
-  const allRepos = db.select().from(schema.repositories).all();
+  // Scope repo fetch to the workspace
+  const allRepos = db
+    .select()
+    .from(schema.repositories)
+    .where(eq(schema.repositories.workspaceId, wsId))
+    .all();
+
   const period = `${new Date(collection.year, collection.month - 1).toLocaleString("id-ID", { month: "long" })} ${collection.year}`;
 
   // Collect per-repo analyses
@@ -186,7 +199,7 @@ export async function generateReport(collectionId: number): Promise<string> {
     .map(r => `**${r.repoName}:** ${r.analysis!.nextSuggestions}`)
     .join("\n\n") || "Tidak ada rekomendasi khusus untuk langkah selanjutnya.";
 
-  const template = getTemplate(collectionId);
+  const template = getTemplate(wsId);
   const report = template
     .replace(/\{\{period\}\}/g, period)
     .replace(/\{\{generatedDate\}\}/g, new Date().toLocaleDateString("id-ID", { year: "numeric", month: "long", day: "numeric" }))
