@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Textarea } from "../components/ui/textarea";
@@ -29,8 +30,9 @@ const settingsNav = [
 
 export default function SettingsPage() {
   const { user, updateProfile, activeWorkspace, refreshWorkspaces, workspaces } = useAuth();
-  const [activeTab, setActiveTab] = useState<SettingsTab>(() => (localStorage.getItem("settings:activeTab") as SettingsTab) || "profile");
-  const [workspaceTab, setWorkspaceTab] = useState<"general" | "llm" | "report-template">(() => (localStorage.getItem("settings:workspaceTab") as any) || "general");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = (searchParams.get("tab") === "workspace" ? "workspace" : "profile") as SettingsTab;
+  const workspaceTab = (["general", "llm", "report-template"].includes(searchParams.get("ws") || "") ? searchParams.get("ws")! : "general") as "general" | "llm" | "report-template";
 
   // Profile state
   const [profileName, setProfileName] = useState(() => localStorage.getItem("settings:profileName") || "");
@@ -374,7 +376,7 @@ export default function SettingsPage() {
             <button
               key={id}
               type="button"
-              onClick={() => { setActiveTab(id); localStorage.setItem("settings:activeTab", id); }}
+              onClick={() => { setSearchParams({ tab: id, ws: workspaceTab }); }}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors text-left",
                 activeTab === id
@@ -546,7 +548,7 @@ export default function SettingsPage() {
               <div className="flex gap-1 border-b border-border pb-1 mb-6 mt-2">
                 <button
                   type="button"
-                  onClick={() => { setWorkspaceTab("general"); localStorage.setItem("settings:workspaceTab", "general"); }}
+                  onClick={() => { setSearchParams({ tab: activeTab, ws: "general" }); }}
                   className={cn(
                     "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
                     workspaceTab === "general"
@@ -558,7 +560,7 @@ export default function SettingsPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setWorkspaceTab("llm"); localStorage.setItem("settings:workspaceTab", "llm"); }}
+                  onClick={() => { setSearchParams({ tab: activeTab, ws: "llm" }); }}
                   className={cn(
                     "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
                     workspaceTab === "llm"
@@ -570,7 +572,7 @@ export default function SettingsPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setWorkspaceTab("report-template"); localStorage.setItem("settings:workspaceTab", "report-template"); }}
+                  onClick={() => { setSearchParams({ tab: activeTab, ws: "report-template" }); }}
                   className={cn(
                     "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
                     workspaceTab === "report-template"

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/badge";
 import { Input } from "../components/ui/Input";
@@ -42,7 +42,8 @@ export default function Collections() {
   const [editingCollection, setEditingCollection] = useState<Collection | null>(null);
   const [editRepoIds, setEditRepoIds] = useState<number[] | null>(null);
   const [editing, setEditing] = useState(false);
-  const [viewMode, setViewMode] = useState<"timeline" | "by-repo">("timeline");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const viewMode = (searchParams.get("view") === "by-repo" ? "by-repo" : "timeline") as "timeline" | "by-repo";
   const [repoStatsMap, setRepoStatsMap] = useState<Record<number, RepoStats[]>>({});
 
   useEffect(() => {
@@ -144,10 +145,10 @@ export default function Collections() {
           <h1 className="text-3xl font-semibold tracking-[-0.04em]">Collection timeline</h1>
           <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">Each reporting period captures repository activity before analysis begins.</p>
           <div className="mt-4 flex items-center gap-1 rounded-lg border border-border bg-card p-0.5 w-fit">
-            <button type="button" onClick={() => setViewMode("timeline")} className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === "timeline" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
-              Timeline
-            </button>
-            <button type="button" onClick={() => setViewMode("by-repo")} className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === "by-repo" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+            <button type="button" onClick={() => setSearchParams({ view: "timeline" })} className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === "timeline" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+                          Timeline
+                        </button>
+                        <button type="button" onClick={() => setSearchParams({ view: "by-repo" })} className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === "by-repo" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
               By repository
             </button>
           </div>
