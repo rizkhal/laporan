@@ -1,19 +1,23 @@
 import { Hono } from "hono";
 import { db } from "../db/index";
 import * as schema from "../db/schema";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { eq, desc, asc, and, sql } from "drizzle-orm";
 import { z } from "zod";
 
 const router = new Hono();
 
 router.get("/", (c) => {
-  const collections = db.select().from(schema.collections).orderBy(desc(schema.collections.year), desc(schema.collections.month)).all();
-  return c.json(collections);
+  const collections = db.select().from(schema.collections).orderBy(desc(schema.collections.year), asc(schema.collections.month)).all();
+  const parsed = collections.map(col => ({
+    ...col,
+    repoIds: col.repoIds ? JSON.parse(col.repoIds) : null,
+  }));
+  return c.json(parsed);
 });
 
 router.post("/", async (c) => {
   const body = await c.req.json();
-  const parsed = z.object({ year: z.number(), month: z.number() }).parse(body);
+  const parsed = z.object({ year: z.number(), month: z.number(), repoIds: z.array(z.number()).optional() }).parse(body);
 
   const title = `${new Date(parsed.year, parsed.month - 1).toLocaleString("default", { month: "long" })} ${parsed.year}`;
 
@@ -27,16 +31,20 @@ router.post("/", async (c) => {
     year: parsed.year,
     month: parsed.month,
     title,
+    repoIds: parsed.repoIds ? JSON.stringify(parsed.repoIds) : null,
   }).returning().get();
 
-  return c.json(result, 201);
+  // Parse repoIds for response
+  const resp = { ...result, repoIds: result.repoIds ? JSON.parse(result.repoIds) : null };
+  return c.json(resp, 201);
 });
 
 router.get("/:id", (c) => {
   const id = parseInt(c.req.param("id"));
   const collection = db.select().from(schema.collections).where(eq(schema.collections.id, id)).get();
   if (!collection) return c.json({ error: "Not found" }, 404);
-  return c.json(collection);
+  const resp = { ...collection, repoIds: collection.repoIds ? JSON.parse(collection.repoIds) : null };
+  return c.json(resp);
 });
 
 router.delete("/:id", (c) => {

@@ -16,8 +16,14 @@ router.post("/:id/collect", async (c) => {
   // Update status
   db.update(schema.collections).set({ status: "collecting" }).where(eq(schema.collections.id, id)).run();
 
-  // Get all enabled repos
-  const repos = db.select().from(schema.repositories).where(eq(schema.repositories.enabled, true as any)).all();
+  // Determine which repos to collect: specific repoIds or all enabled
+  const selectedRepoIds: number[] = collection.repoIds ? JSON.parse(collection.repoIds) : [];
+  let repos;
+  if (selectedRepoIds.length > 0) {
+    repos = selectedRepoIds.map(rid => db.select().from(schema.repositories).where(eq(schema.repositories.id, rid)).get()).filter(Boolean);
+  } else {
+    repos = db.select().from(schema.repositories).where(eq(schema.repositories.enabled, true as any)).all();
+  }
 
   const results: { repoId: number; repoName: string; commits: number; error?: string }[] = [];
   let totalCommits = 0;

@@ -7,7 +7,7 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { apiFetch } from "../lib/utils";
-import { Calendar, Plus, ArrowRight, Trash2, Loader2 } from "lucide-react";
+import { Calendar, Plus, ArrowRight, Trash2, Loader2, GitBranch, CheckSquare, Square } from "lucide-react";
 
 interface Collection {
   id: number;
@@ -16,6 +16,14 @@ interface Collection {
   title: string;
   status: string;
   createdAt: string;
+  repoIds: number[] | null;
+}
+
+interface Repo {
+  id: number;
+  name: string;
+  localPath: string;
+  category: string;
 }
 
 const statusVariant: Record<string, "default" | "secondary" | "success" | "warning" | "destructive"> = {
@@ -37,8 +45,18 @@ export default function Collections() {
   const [year, setYear] = useState(new Date().getFullYear());
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [creating, setCreating] = useState(false);
+  const [repos, setRepos] = useState<Repo[]>([]);
+  const [selectedRepoIds, setSelectedRepoIds] = useState<number[]>([]);
+  const [selectAll, setSelectAll] = useState(true);
 
-  useEffect(() => { loadCollections(); }, []);
+  useEffect(() => { loadCollections(); loadRepos(); }, []);
+
+  async function loadRepos() {
+    try {
+      const data = await apiFetch<Repo[]>("/repos");
+      setRepos(data);
+    } catch {}
+  }
 
   async function loadCollections() {
     try {
@@ -55,9 +73,14 @@ export default function Collections() {
   async function handleCreate() {
     try {
       setCreating(true);
+      const body: any = { year, month };
+      // Send repoIds only if specific repos selected
+      if (!selectAll && selectedRepoIds.length > 0) {
+        body.repoIds = selectedRepoIds;
+      }
       const col = await apiFetch<Collection>("/collections", {
         method: "POST",
-        body: JSON.stringify({ year, month }),
+        body: JSON.stringify(body),
       });
       setCollections([col, ...collections]);
       setDialogOpen(false);
@@ -102,9 +125,9 @@ export default function Collections() {
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
-            <Button><Plus className="h-4 w-4" /> New Collection</Button>
+            <Button onClick={() => { setSelectAll(true); setSelectedRepoIds([]); }}><Plus className="h-4 w-4" /> New Collection</Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle>Create Collection</DialogTitle>
             </DialogHeader>
@@ -125,9 +148,58 @@ export default function Collections() {
                   ))}
                 </select>
               </div>
+
+              {/* Repository Selection */}
+              <div>
+                <Label>Repositories</Label>
+                {repos.length > 0 && (
+                  <div className="mt-1 space-y-1.5">
+                    <label className="flex items-center gap-2 text-sm cursor-pointer hover:text-primary transition-colors">
+                      <input
+                        type="checkbox"
+                        className="rounded"
+                        checked={selectAll}
+                        onChange={() => {
+                          setSelectAll(true);
+                          setSelectedRepoIds([]);
+                        }}
+                      />
+                      <span className="font-medium">All Repositories</span>
+                    </label>
+                    <div className="border-t pt-1.5 space-y-1">
+                      {repos.map(repo => (
+                        <label key={repo.id} className="flex items-center gap-2 text-sm cursor-pointer hover:text-primary transition-colors ml-4">
+                          <input
+                            type="checkbox"
+                            className="rounded"
+                            checked={selectAll || selectedRepoIds.includes(repo.id)}
+                            disabled={selectAll}
+                            onChange={() => {
+                              setSelectAll(false);
+                              setSelectedRepoIds(prev =>
+                                prev.includes(repo.id)
+                                  ? prev.filter(r => r !== repo.id)
+                                  : [...prev, repo.id]
+                              );
+                            }}
+                          />
+                          <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
+                          <span>{repo.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {repos.length === 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    No repositories configured. Add one first.
+                  </p>
+                )}
+              </div>
+
               <div className="flex justify-end gap-2 pt-2">
                 <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-                <Button onClick={handleCreate} disabled={creating}>
+                <Button onClick={handleCreate} disabled={creating || (!selectAll && selectedRepoIds.length === 0)}>
                   {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                   Create
                 </Button>
@@ -164,6 +236,9 @@ export default function Collections() {
                     <div className="flex items-center gap-2 mt-0.5">
                       <Badge variant={statusVariant[col.status] || "secondary"}>{col.status}</Badge>
                       <span className="text-xs text-muted-foreground">{col.createdAt}</span>
+                      {col.repoIds && col.repoIds.length > 0 && (
+                        <span className="text-xs text-muted-foreground">{col.repoIds.length} repos</span>
+                      )}
                     </div>
                   </div>
                 </div>

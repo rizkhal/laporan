@@ -21,6 +21,7 @@ export const collections = sqliteTable("collections", {
   month: integer("month").notNull(), // 1-12
   title: text("title").notNull(),
   status: text("status").notNull().default("draft"), // draft, collecting, completed, analyzing, analyzed, generating, generated
+  repoIds: text("repo_ids"), // JSON array of repo IDs, null = all repos
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
   updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
 });
