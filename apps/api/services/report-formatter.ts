@@ -651,22 +651,21 @@ function generateDaftarIsi(sections: SectionData[], mode: ReportMode): string {
 
   // Markdown/HTML fallback: simple nested outline without page numbers or dot leaders.
   // Google Docs export will detect the DAFTAR ISI heading and insert a native TOC element.
-  lines.push("- KATA PENGANTAR");
+  lines.push("KATA PENGANTAR");
 
   for (const [si, section] of sections.entries()) {
     const roman = ROMAN[si] || `${si + 1}`;
-    lines.push(`  - ${roman}. ${section.name}`);
+    lines.push(`${roman}. ${section.name}`);
     for (const repo of section.repos) {
-      lines.push(`    - ${repo.repoName}`);
       for (const [wi, item] of repo.workItems.entries()) {
         const judul = item.judul || item.title || "Item pekerjaan";
-        lines.push(`      - ${String.fromCharCode(97 + wi)}. ${judul}`);
+        lines.push(`   ${String.fromCharCode(97 + wi)}. ${judul} — ${repo.repoName}`);
       }
     }
   }
 
-  lines.push(`  - ${ROMAN[sections.length] || "IV"}. KESIMPULAN`);
-  lines.push(`  - ${ROMAN[sections.length + 1] || "V"}. LAMPIRAN`);
+  lines.push(`${ROMAN[sections.length] || "IV"}. KESIMPULAN`);
+  lines.push(`${ROMAN[sections.length + 1] || "V"}. LAMPIRAN`);
 
   const appendixLetters = APPENDIX_MODES[mode];
   for (const letter of appendixLetters) {
@@ -678,7 +677,7 @@ function generateDaftarIsi(sections: SectionData[], mode: ReportMode): string {
       E: "Lampiran E — Pemetaan Bukti",
       F: "Lampiran F — Ringkasan Repositori",
     };
-    lines.push(`    - ${names[letter] || `Lampiran ${letter}`}`);
+    lines.push(`   ${names[letter] || `Lampiran ${letter}`}`);
   }
 
   return lines.join("\n");
@@ -721,12 +720,11 @@ function renderSections(sections: SectionData[]): string {
 
         const bukti = item.bukti || item.evidence || [];
         if (bukti.length > 0) {
-          const evidenceLines = bukti.map((b: any) => {
+          parts.push(`Bukti: ${bukti.map((b: any) => {
             const hash = (b.hashCommit || b.commitHash || "").slice(0, 8);
             const file = b.berkas || b.file || "";
-            return `- \`${hash}\` — \`${file}\``;
-          });
-          parts.push(`  *Bukti:* ${evidenceLines.join("; ")}`);
+            return `${hash} — ${file}`;
+          }).join("; ")}`);
           parts.push("");
         }
 
@@ -734,18 +732,18 @@ function renderSections(sections: SectionData[]): string {
         const keyakinan = item.keyakinan || item.confidence || "";
         const kategori = item.kategori || item.category || "";
         const metaParts: string[] = [];
-        if (kategori) metaParts.push(`kategori: ${getCategoryLabel(kategori)}`);
-        if (dampak) metaParts.push(`dampak: ${dampak}`);
-        if (keyakinan) metaParts.push(`keyakinan: ${keyakinan}`);
+        if (kategori) metaParts.push(`Kategori: ${getCategoryLabel(kategori)}`);
+        if (dampak) metaParts.push(`Dampak: ${dampak}`);
+        if (keyakinan) metaParts.push(`Keyakinan: ${keyakinan}`);
         if (metaParts.length > 0) {
-          parts.push(`  *${metaParts.join(" | ")}*`);
+          parts.push(metaParts.join(" | "));
           parts.push("");
         }
 
         itemIndex++;
       }
 
-      parts.push(`  *Ringkasan: ${repo.totalCommits} commit, +${repo.totalInsertions}/-${repo.totalDeletions} perubahan*`);
+      parts.push(`Ringkasan: ${repo.totalCommits} commit, +${repo.totalInsertions}/-${repo.totalDeletions} perubahan`);
       parts.push("");
       repoIndex++;
     }
@@ -770,7 +768,7 @@ function generateKesimpulan(
 
   // Count by section
   const sectionCounts = sections.map(sec =>
-    `  - **${sec.name}**: ${sec.repos.reduce((s, r) => s + r.workItems.length, 0)} item pekerjaan`,
+    `${sec.name}: ${sec.repos.reduce((s, r) => s + r.workItems.length, 0)} item pekerjaan`,
   );
 
   // Achievements from sections (which may include fallback items)
@@ -779,8 +777,8 @@ function generateKesimpulan(
   );
   const highImpact = allItems.filter(i => (i.item.dampak || "").toLowerCase() === "tinggi");
   const achievements = highImpact.length > 0
-    ? highImpact.slice(0, 5).map(i => `  - ${i.item.judul} — \`${i.repo}\``)
-    : allItems.slice(0, 5).map(i => `  - ${i.item.judul} — \`${i.repo}\``);
+    ? highImpact.slice(0, 5).map(i => `- ${i.item.judul} (${i.repo})`)
+    : allItems.slice(0, 5).map(i => `- ${i.item.judul} (${i.repo})`);
 
   return [
     `Berdasarkan hasil analisis aktivitas pengembangan pada periode **${period}**, berikut adalah kesimpulan yang dapat ditarik:`,
@@ -907,7 +905,7 @@ function generateLampiranB(
       if (relatedItems.length > 0) {
         parts.push("**Item Pekerjaan Terkait:**");
         for (const item of [...new Set(relatedItems)]) {
-          parts.push(`- ${item}`);
+          parts.push(item);
         }
         parts.push("");
       }
@@ -920,10 +918,10 @@ function generateLampiranB(
         const fileLimit = 15;
         const displayFiles = changedFiles.slice(0, fileLimit);
         for (const f of displayFiles) {
-          parts.push(`- \`${f}\``);
+          parts.push(`${f}`);
         }
         if (changedFiles.length > fileLimit) {
-          parts.push(`- *...dan ${changedFiles.length - fileLimit} berkas lainnya*`);
+          parts.push(`...dan ${changedFiles.length - fileLimit} berkas lainnya`);
         }
         parts.push("");
       }
@@ -1259,18 +1257,18 @@ function generateLampiranE(
           // Find the full commit to show its message
           const match = allCommits.find(c => c.hash.toLowerCase().startsWith(hash));
           const message = match ? match.message.substring(0, 80) : "(tidak ditemukan)";
-          parts.push(`- \`${hash}\` — ${message}`);
+          parts.push(`${hash} — ${message}`);
         }
         parts.push("");
 
         parts.push("**Berkas Terkait:**");
         const uniqueFiles = [...new Set(bukti.map(b => { const raw = b as any; return raw.berkas || raw.file || ""; }).filter(Boolean))];
         for (const f of uniqueFiles) {
-          parts.push(`- \`${f}\``);
+          parts.push(f);
         }
         parts.push("");
       } else {
-        parts.push("*Tidak ada bukti spesifik yang tercatat untuk item ini.*");
+        parts.push("Tidak ada bukti spesifik yang tercatat untuk item ini.");
         parts.push("");
       }
 
@@ -1322,7 +1320,7 @@ function generateLampiranF(
       for (const item of repo.workItems) {
         const bukti = item.bukti || [];
         const commitCount = bukti.length;
-        parts.push(`- **${item.judul}** (_${getCategoryLabel(item.kategori || "")}_, dampak ${item.dampak || "N/A"}, ${commitCount} bukti commit)`);
+        parts.push(`${item.judul} (${getCategoryLabel(item.kategori || "")}, dampak ${item.dampak || "N/A"}, ${commitCount} bukti commit)`);
       }
       parts.push("");
     }
