@@ -31,16 +31,7 @@ export interface AuthContext {
   workspace: AuthWorkspace;
 }
 
-// Role hierarchy for permission checking
-const ROLE_HIERARCHY: Record<string, number> = {
-  member: 0,
-  admin: 1,
-  owner: 2,
-};
 
-export function hasMinRole(userRole: string, minRole: string): boolean {
-  return (ROLE_HIERARCHY[userRole] ?? -1) >= (ROLE_HIERARCHY[minRole] ?? 0);
-}
 
 /**
  * Require authentication and return current user + session.

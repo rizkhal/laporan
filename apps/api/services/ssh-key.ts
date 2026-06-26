@@ -6,14 +6,6 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STORAGE_ROOT = path.join(__dirname, "..", ".storage", "ssh-keys");
 
-export interface SshKeyData {
-  id: number;
-  workspaceId: number;
-  name: string;
-  publicKey: string;
-  fingerprint: string | null;
-  createdAt: string;
-}
 
 export interface SshKeyFiles {
   privateKeyPath: string;

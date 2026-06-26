@@ -6,7 +6,7 @@ import { WorkspaceSwitcher } from "./workspace-switcher";
 import { ActivityCenter } from "./activity-center";
 import {
   ArrowRight, BarChart3, Command, FileText, FolderGit2, LogOut, Moon,
-  Search, Settings, Sun, Tags, User, X,
+  Search, Settings, Sun, User, X,
 } from "lucide-react";
 
 const navItems = [

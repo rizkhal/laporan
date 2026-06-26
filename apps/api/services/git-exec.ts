@@ -121,24 +121,3 @@ export function execGit(
     });
   });
 }
-
-/**
- * Execute a git command and throw on non-zero exit.
- * Returns stdout string. Convenience wrapper for execGit.
- */
-export async function execGitOrThrow(
-  args: string[],
-  options?: {
-    cwd?: string;
-    workspaceId?: number;
-    timeout?: number;
-    maxBuffer?: number;
-  },
-): Promise<string> {
-  const result = await execGit(args, options);
-  if (result.exitCode !== 0) {
-    const msg = result.stderr.trim() || result.stdout.trim() || `git exited with code ${result.exitCode}`;
-    throw new Error(msg);
-  }
-  return result.stdout;
-}
