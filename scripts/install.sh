@@ -11,14 +11,13 @@
 #   curl -fsSL https://get-laporan.rizkal.space | \
 #     ADMIN_EMAIL="admin@example.com" \
 #     ADMIN_PASSWORD="change-me-123" \
-#     LLM_API_KEY="sk-..." \
 #     bash
 #
 # ═══════════════════════════════════════════════════════════════
 set -euo pipefail
 
 # ── Defaults ──
-INSTALL_DIR="${INSTALL_DIR:-/opt/laporan}"
+INSTALL_DIR="${INSTALL_DIR:-$(pwd)/laporan}"
 REPO_URL="${REPO_URL:-https://github.com/rizkhal/laporan.git}"
 BRANCH="${BRANCH:-master}"
 PORT="${PORT:-3000}"
@@ -26,10 +25,6 @@ PORT="${PORT:-3000}"
 ADMIN_NAME="${ADMIN_NAME:-Admin}"
 ADMIN_EMAIL="${ADMIN_EMAIL:-}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-}"
-
-LLM_BASE_URL="${LLM_BASE_URL:-https://api.openai.com/v1}"
-LLM_API_KEY="${LLM_API_KEY:-}"
-LLM_MODEL="${LLM_MODEL:-gpt-4o-mini}"
 
 # ── Colors ──
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -39,13 +34,32 @@ ok()    { echo -e "${GREEN}✓${NC} $1"; }
 warn()  { echo -e "${YELLOW}⚠${NC} $1"; }
 err()   { echo -e "${RED}✗${NC} $1"; }
 
-# ── Sanity checks ──
-if [[ $EUID -ne 0 ]]; then
-  err "This script must be run as root."
-  info "Try: curl -fsSL https://get-laporan.rizkal.space | sudo bash"
-  exit 1
-fi
+# ── Loading spinner ──
+spinner() {
+  local pid=$1
+  local msg=$2
+  local delay=0.1
+  local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+  local i=0
+  while kill -0 "$pid" 2>/dev/null; do
+    printf "\r${CYAN} %s ${NC}%s" "${spinstr:$i:1}" "$msg"
+    i=$(( (i+1) % 10 ))
+    sleep $delay
+  done
+  printf "\r${GREEN} ✓ ${NC}%s\n" "$msg"
+}
 
+run_with_spinner() {
+  local msg=$1
+  shift
+  ("$@" &>/dev/null) &
+  local pid=$!
+  spinner "$pid" "$msg"
+  wait "$pid"
+  return $?
+}
+
+# ── Sanity checks ──
 OS="$(uname -s)"
 ARCH="$(uname -m)"
 
@@ -67,9 +81,7 @@ echo ""
 # ═══════════════════════════════════════════════════════════════
 # 1 ── Install system dependencies
 # ═══════════════════════════════════════════════════════════════
-info "Installing system dependencies..."
-
-apt-get update -qq
+info "Checking system dependencies..."
 
 DEPS=""
 for dep in git curl; do
@@ -79,6 +91,7 @@ for dep in git curl; do
 done
 
 if [[ -n "$DEPS" ]]; then
+  apt-get update -qq
   apt-get install -y -qq $DEPS
 fi
 ok "System dependencies ready"
@@ -86,20 +99,14 @@ ok "System dependencies ready"
 # ═══════════════════════════════════════════════════════════════
 # 2 ── Check / Install Node.js
 # ═══════════════════════════════════════════════════════════════
-info "Checking Node.js..."
-
 install_nodejs() {
-  warn "Node.js 18+ not found. Installing Node.js 20 via NodeSource..."
   curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
   apt-get install -y nodejs
 }
 
 if command -v node &>/dev/null; then
   NODE_MAJOR=$(node -v | sed 's/v//' | cut -d. -f1)
-  if [[ "$NODE_MAJOR" -ge 18 ]]; then
-    ok "Node.js $(node -v) found"
-  else
-    warn "Node.js $(node -v) is too old"
+  if [[ "$NODE_MAJOR" -lt 18 ]]; then
     install_nodejs
   fi
 else
@@ -107,43 +114,27 @@ else
 fi
 
 if ! command -v npm &>/dev/null; then
-  err "npm not found. Try rebooting or install manually: apt-get install -y npm"
+  err "npm not found."
   exit 1
 fi
-ok "npm $(npm -v) found"
+ok "Node.js $(node -v) ready"
 
 # ═══════════════════════════════════════════════════════════════
-# 3 ── Clone / pull repository
+# 3 ── Clone repository
 # ═══════════════════════════════════════════════════════════════
-info "Cloning repository..."
+run_with_spinner "Cloning repository..." git clone --depth=1 -b "$BRANCH" "$REPO_URL" "$INSTALL_DIR"
 
-if [[ -d "$INSTALL_DIR/.git" ]]; then
-  warn "$INSTALL_DIR already exists. Pulling latest changes..."
-  cd "$INSTALL_DIR"
-  git fetch origin "$BRANCH"
-  git reset --hard "origin/$BRANCH"
-else
-  mkdir -p "$(dirname "$INSTALL_DIR")"
-  git clone --depth=1 -b "$BRANCH" "$REPO_URL" "$INSTALL_DIR"
-  cd "$INSTALL_DIR"
-fi
-ok "Repository ready at $INSTALL_DIR"
-
-# ═══════════════════════════════════════════════════════════════
-# 4 ── Install npm dependencies
-# ═══════════════════════════════════════════════════════════════
-info "Installing npm dependencies..."
 cd "$INSTALL_DIR"
-npm install 2>&1 | tail -1
-ok "Dependencies installed"
+
+# ═══════════════════════════════════════════════════════════════
+# 4 ── Install dependencies
+# ═══════════════════════════════════════════════════════════════
+run_with_spinner "Installing dependencies..." npm install
 
 # ═══════════════════════════════════════════════════════════════
 # 5 ── Build frontend
 # ═══════════════════════════════════════════════════════════════
-info "Building frontend..."
-cd "$INSTALL_DIR"
-npm run build 2>&1 | tail -1
-ok "Frontend built"
+run_with_spinner "Building frontend..." npm run build
 
 # ═══════════════════════════════════════════════════════════════
 # 6 ── Configure environment
@@ -151,8 +142,6 @@ ok "Frontend built"
 if [[ -f "$INSTALL_DIR/apps/api/.env" ]]; then
   ok "Environment file exists (skipping)"
 else
-  info "Configuring environment..."
-
   # Redirect stdin to terminal for interactive prompts when piped
   if [[ ! -t 0 ]]; then
     exec </dev/tty
@@ -167,39 +156,22 @@ else
     printf "  Admin password (min 6 chars): " && read -rs ADMIN_PASSWORD
     echo ""
   fi
-  if [[ -z "$LLM_API_KEY" ]]; then
-    printf "  LLM API Key (https://platform.openai.com/api-keys): " && read -rs LLM_API_KEY
-    echo ""
-  fi
 
   printf "  Frontend URL [http://%s:%s]: " "$SERVER_IP" "$PORT"
   read -r FRONTEND_URL_INPUT
   FRONTEND_URL="${FRONTEND_URL_INPUT:-http://$SERVER_IP:$PORT}"
 
-  printf "  LLM Base URL [%s]: " "$LLM_BASE_URL"
-  read -r LLM_BASE_URL_INPUT
-  LLM_BASE_URL="${LLM_BASE_URL_INPUT:-$LLM_BASE_URL}"
-
-  printf "  LLM Model [%s]: " "$LLM_MODEL"
-  read -r LLM_MODEL_INPUT
-  LLM_MODEL="${LLM_MODEL_INPUT:-$LLM_MODEL}"
-
   cat > "$INSTALL_DIR/apps/api/.env" << EOF
 PORT=$PORT
 FRONTEND_URL=$FRONTEND_URL
-LLM_BASE_URL=$LLM_BASE_URL
-LLM_API_KEY=$LLM_API_KEY
-LLM_MODEL=$LLM_MODEL
 NODE_ENV=production
 EOF
   ok "Environment configured"
 fi
 
 # ═══════════════════════════════════════════════════════════════
-# 7 ── Create admin account (start server temporarily)
+# 7 ── Create admin account
 # ═══════════════════════════════════════════════════════════════
-info "Creating admin account..."
-
 if [[ -z "$ADMIN_EMAIL" || -z "$ADMIN_PASSWORD" ]]; then
   if [[ ! -t 0 ]]; then
     exec </dev/tty
@@ -213,15 +185,21 @@ if [[ -z "$ADMIN_EMAIL" || -z "$ADMIN_PASSWORD" ]]; then
   fi
 fi
 
-# Start API server temporarily
-cd "$INSTALL_DIR"
-npx tsx apps/api/src/index.ts &
-SERVER_PID=$!
-sleep 3
+info "Creating admin account..."
 
-# Check if server is up
+node_modules/.bin/tsx apps/api/src/index.ts &
+SERVER_PID=$!
+
+# Wait for server to be ready (up to 15s)
+for i in $(seq 1 15); do
+  if curl -s "http://localhost:$PORT/api/health" &>/dev/null; then
+    break
+  fi
+  sleep 1
+done
+
 if ! kill -0 "$SERVER_PID" 2>/dev/null; then
-  err "Server failed to start. Check output above for details."
+  err "Server failed to start."
   exit 1
 fi
 
@@ -232,17 +210,13 @@ RESPONSE=$(curl -s -X POST "http://localhost:$PORT/api/auth/register" \
 if echo "$RESPONSE" | grep -q '"token"'; then
   TOKEN=$(echo "$RESPONSE" | sed 's/.*"token":"\([^"]*\)".*/\1/')
   echo "$TOKEN" > "$INSTALL_DIR/.admin-token"
-  ok "Admin account created (token saved to .admin-token)"
+  ok "Admin account created"
 else
   ERROR=$(echo "$RESPONSE" | sed 's/.*"error":"\([^"]*\)".*/\1/')
-  if [[ -z "$ERROR" ]]; then
-    ERROR="Unknown error: $RESPONSE"
-  fi
+  [[ -z "$ERROR" ]] && ERROR="Unknown error"
   err "Failed to create admin account: $ERROR"
-  warn "You can create an account later by running the server and calling the register API."
 fi
 
-# Stop the temporary server
 kill "$SERVER_PID" 2>/dev/null || true
 wait "$SERVER_PID" 2>/dev/null || true
 sleep 1
@@ -261,16 +235,14 @@ echo ""
 echo -e "  ${CYAN}Install dir:${NC} $INSTALL_DIR"
 echo -e "  ${CYAN}Email:${NC}      $ADMIN_EMAIL"
 echo ""
-echo -e "  ${YELLOW}To start the application:${NC}"
+echo -e "  ${YELLOW}To start:${NC}"
 echo ""
-echo -e "    ${BLUE}cd $INSTALL_DIR${NC}"
-echo -e "    ${BLUE}npm run dev${NC}"
+echo -e "    ${BLUE}cd $INSTALL_DIR && npm run dev${NC}"
 echo ""
-echo -e "  This starts both the API server (port $PORT) and the frontend dev server."
+echo -e "  This starts the API server (port $PORT) and frontend dev server."
+echo ""
+echo -e "  After logging in, add your LLM API key in Settings."
 echo ""
 echo -e "  ${YELLOW}For production:${NC}"
-echo -e "  Set up a reverse proxy (Nginx / Caddy) to serve the built frontend"
-echo -e "  at ${INSTALL_DIR}/apps/web/dist and proxy /api/ to port $PORT."
-echo ""
-echo -e "  ${YELLOW}Docs:${NC}  https://github.com/rizkhal/laporan"
+echo -e "  Set up Nginx to serve ${INSTALL_DIR}/apps/web/dist and proxy /api/ to port $PORT."
 echo ""
