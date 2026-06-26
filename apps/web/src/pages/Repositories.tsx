@@ -255,7 +255,6 @@ export default function Repositories() {
                         <Badge variant={repo.enabled ? "success" : "secondary"}>
                           {repo.enabled ? "Enabled" : "Disabled"}
                         </Badge>
-                        <Badge variant="secondary" className="text-[10px]">{repo.category || "general"}</Badge>
                       </CardTitle>
                       <p className="text-sm text-muted-foreground mt-1 font-mono truncate">{repo.remoteUrl}</p>
                       {repo.cloneStatus === "connected" && (
