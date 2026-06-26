@@ -10,11 +10,15 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DB_PATH = process.env.DATABASE_URL
-  ? process.env.DATABASE_URL.replace("file:", "")
-  : path.join(__dirname, "dev.db");
 
 let migrated = false;
+
+function getDbPath(): string {
+  if (process.env.DATABASE_URL) {
+    return process.env.DATABASE_URL.replace("file:", "");
+  }
+  return path.join(__dirname, "dev.db");
+}
 
 function slugify(text: string): string {
   return text
@@ -35,7 +39,7 @@ export function runMigration(): void {
 
   let sqlite: Database.Database | null = null;
   try {
-    sqlite = new Database(DB_PATH);
+    sqlite = new Database(getDbPath());
     sqlite.pragma("journal_mode = WAL");
     sqlite.pragma("foreign_keys = OFF");
 
@@ -247,6 +251,38 @@ export function runMigration(): void {
       console.log("  → Created jobs table");
     } catch (err: any) {
       console.log(`  ⚠️ Jobs table creation skipped: ${err.message}`);
+    }
+
+    // 13. Create google_integrations table
+    try {
+      sqlite!.exec(`
+        CREATE TABLE IF NOT EXISTS google_integrations (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          workspace_id INTEGER NOT NULL UNIQUE REFERENCES workspaces(id) ON DELETE CASCADE,
+          google_account_email TEXT NOT NULL,
+          access_token TEXT,
+          refresh_token TEXT,
+          expires_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+      `);
+      console.log("  → Created google_integrations table");
+    } catch (err: any) {
+      console.log(`  ⚠️ google_integrations table creation skipped: ${err.message}`);
+    }
+
+    // 14. Add google_doc_id/docs columns to reports
+    try {
+      const reportCols = sqlite!.prepare("PRAGMA table_info(reports)").all() as any[];
+      const hasGoogleDocId = reportCols.some((c: any) => c.name === "google_doc_id");
+      if (!hasGoogleDocId) {
+        sqlite!.exec("ALTER TABLE reports ADD COLUMN google_doc_id TEXT;");
+        sqlite!.exec("ALTER TABLE reports ADD COLUMN google_doc_url TEXT;");
+        console.log("  → Added google_doc_id and google_doc_url columns to reports");
+      }
+    } catch (err: any) {
+      console.log(`  ⚠️ Reports google_doc_id migration skipped: ${err.message}`);
     }
 } catch (err: any) {
   console.error("❌ Workspace migration error:", err.message);

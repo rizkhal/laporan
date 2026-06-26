@@ -7,6 +7,7 @@ import { runAnalysisForRepo } from "./llm-analyzer";
 import { generateReport } from "./report-formatter";
 import { getStrategy } from "./report-strategies";
 import { killGitExec } from "./git-exec";
+import { exportToGoogleDocs } from "./google-docs-exporter";
 
 // ── Types ──
 
@@ -15,7 +16,8 @@ export type JobType =
   | "refresh_repository"
   | "collect_commits"
   | "analyze_collection"
-  | "generate_report";
+  | "generate_report"
+  | "export_google_docs";
 
 export type JobStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 
@@ -486,6 +488,50 @@ async function executeJob(
       );
 
       updateProgress(100, "Report generated successfully.");
+      break;
+    }
+
+    case "export_google_docs": {
+      if (isJobCancelled(job.id)) throw new Error("Job was cancelled");
+      updateProgress(10, "Preparing Google Docs export...");
+
+      if (!payload.reportId) throw new Error("Missing reportId");
+      if (!payload.accessToken || !payload.refreshToken) throw new Error("Missing Google tokens");
+
+      const reportRow = db
+        .select()
+        .from(schema.reports)
+        .where(eq(schema.reports.id, payload.reportId))
+        .get();
+
+      if (!reportRow) throw new Error("Report not found");
+
+      const documentTitle = payload.documentTitle || `Laporan Kemajuan Pekerjaan`;
+
+      updateProgress(20, "Parsing document structure...");
+
+      // Export using the pipeline exporter
+      const result = await exportToGoogleDocs({
+        accessToken: payload.accessToken as string,
+        refreshToken: payload.refreshToken as string,
+        documentTitle,
+        markdownContent: reportRow.content,
+        onProgress: (p) => {
+          updateProgress(Math.max(20, Math.min(95, p.progress)), p.message);
+        },
+      });
+
+      // Update report with Google Docs URL
+      db.update(schema.reports)
+        .set({
+          googleDocId: result.documentId,
+          googleDocUrl: result.documentUrl,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(schema.reports.id, payload.reportId))
+        .run();
+
+      updateProgress(100, "Google Docs export completed.");
       break;
     }
 

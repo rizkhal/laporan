@@ -1,17 +1,33 @@
-import { Hono } from "hono";
-import { cors } from "hono/cors";
-import { HTTPException } from "hono/http-exception";
-import { serve } from "@hono/node-server";
-import { reposRouter } from "./routes/repos";
-import { collectionsRouter } from "./routes/collections";
-import { settingsRouter } from "./routes/settings";
-import { reportsRouter } from "./routes/reports";
-import { analysesRouter } from "./routes/analyses";
-import { collectionDetailRouter } from "./routes/collection-detail";
-import { authRouter } from "./routes/auth";
-import { workspacesRouter } from "./routes/workspaces";
-import { jobsRouter } from "./routes/jobs";
-import { runMigration } from "./db/migrate-workspaces";
+import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
+
+// Load env BEFORE any other module executes (dynamic imports are NOT hoisted)
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.join(__dirname, ".env") });
+
+// Dynamic imports ensure db/index.ts (which reads env at module level) runs AFTER dotenv
+const [{ Hono }, { cors }, { HTTPException }, { serve }, { reposRouter },
+  { collectionsRouter }, { settingsRouter }, { reportsRouter },
+  { analysesRouter }, { collectionDetailRouter }, { authRouter },
+  { workspacesRouter }, { jobsRouter }, { runMigration },
+  { integrationsRouter }] = await Promise.all([
+  import("hono"),
+  import("hono/cors"),
+  import("hono/http-exception"),
+  import("@hono/node-server"),
+  import("./routes/repos"),
+  import("./routes/collections"),
+  import("./routes/settings"),
+  import("./routes/reports"),
+  import("./routes/analyses"),
+  import("./routes/collection-detail"),
+  import("./routes/auth"),
+  import("./routes/workspaces"),
+  import("./routes/jobs"),
+  import("./db/migrate-workspaces"),
+  import("./routes/integrations"),
+]);
 
 // Run migration on startup (idempotent - safe to run every time)
 runMigration();
@@ -44,6 +60,7 @@ app.route("/api/analyses", analysesRouter);
 app.route("/api/auth", authRouter);
 app.route("/api/workspaces", workspacesRouter);
 app.route("/api/jobs", jobsRouter);
+app.route("/api/integrations", integrationsRouter);
 
 app.get("/api/health", (c) => c.json({ status: "ok" }));
 

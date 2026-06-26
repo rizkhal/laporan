@@ -629,25 +629,6 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              {/* Workspace ID info */}
-              <div className="surface rounded-xl p-6">
-                <h3 className="text-sm font-semibold mb-3">Workspace details</h3>
-                <div className="space-y-3 text-sm">
-                  <div className="flex items-center justify-between py-1.5">
-                    <span className="text-muted-foreground">Workspace ID</span>
-                    <span className="font-mono text-xs">{activeWorkspace?.id}</span>
-                  </div>
-                  <div className="flex items-center justify-between py-1.5">
-                    <span className="text-muted-foreground">Slug</span>
-                    <span className="font-mono text-xs">{activeWorkspace?.slug}</span>
-                  </div>
-                  <div className="flex items-center justify-between py-1.5">
-                    <span className="text-muted-foreground">Active workspaces</span>
-                    <span className="font-mono text-xs">{workspaces.length}</span>
-                  </div>
-                </div>
-              </div>
-
               {/* SSH Key section */}
               <div className="surface rounded-xl p-6">
                 <div className="flex items-center justify-between mb-4">

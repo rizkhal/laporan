@@ -1,3 +1,4 @@
+import { useToast } from "../components/toast";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Badge } from "../components/ui/badge";
@@ -21,7 +22,7 @@ interface Analysis {
   id: number; repoId: number; status: string; workItems: string; category: string;
   summary: string; impact: string; risks: string; nextSuggestions: string; isEdited: boolean; error: string;
 }
-interface Report { id: number; title: string; content: string; style?: string; isEdited: boolean; updatedAt?: string; }
+interface Report { id: number; title: string; content: string; style?: string; isEdited: boolean; updatedAt?: string; googleDocUrl?: string; }
 interface Repo { id: number; name: string; category: string; }
 interface LlmProvider { id: number; name: string; model: string; }
 
@@ -55,6 +56,14 @@ export default function CollectionDetail() {
   const [error, setError] = useState<string | null>(null);
   const [repoEditOpen, setRepoEditOpen] = useState(false);
   const [editRepoIds, setEditRepoIds] = useState<number[] | null>(null);
+  const [googleConnected, setGoogleConnected] = useState(false);
+  const [googleEmail, setGoogleEmail] = useState("");
+  const [exportingGdocs, setExportingGdocs] = useState(false);
+  const [gdocUrl, setGdocUrl] = useState<string | null>(null);
+  const [exportJobId, setExportJobId] = useState<number | null>(null);
+  const [exportProgress, setExportProgress] = useState<string>("");
+  const [exportProgressPct, setExportProgressPct] = useState(0);
+  const { addToast } = useToast();
 
   async function loadAll() {
     try {
@@ -75,6 +84,7 @@ export default function CollectionDetail() {
       setReport(reportData);
       setReportDraft(reportData?.content || "");
       if (reportData?.style) setReportStyle(reportData.style);
+      if (reportData?.googleDocUrl) setGdocUrl(reportData.googleDocUrl);
       if (!selectedRepo) {
         const firstRepo = collectionData?.repoIds
           ? repoData.find((r) => collectionData.repoIds?.includes(r.id))
@@ -88,9 +98,13 @@ export default function CollectionDetail() {
     } finally {
       setLoading(false);
     }
+    checkGoogleStatus();
   }
 
-  useEffect(() => { loadAll(); }, [collectionId]);
+  useEffect(() => {
+    loadAll();
+    checkGoogleStatus();
+  }, [collectionId]);
 
   async function runAction(action: "collect" | "analyze" | "report") {
     try {
@@ -150,13 +164,117 @@ export default function CollectionDetail() {
   }
 
   async function exportMarkdown() {
+    const period = collection?.title || "monthly-report";
+    const slug = period.toLowerCase().replace(/\s+/g, "-");
     const blob = new Blob([reportDraft], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `${collection?.title || "monthly-report"}.md`;
+    anchor.download = `laporan-kemajuan-pekerjaan-${slug}.md`;
     anchor.click();
     URL.revokeObjectURL(url);
+  }
+
+  async function checkGoogleStatus() {
+    try {
+      const res = await apiFetch<{ connected: boolean; email?: string }>("/integrations/google/status");
+      setGoogleConnected(res.connected);
+      if (res.email) setGoogleEmail(res.email);
+      if (res.connected && report?.googleDocUrl) {
+        setGdocUrl(report.googleDocUrl);
+      }
+    } catch {}
+  }
+
+  async function exportToGoogleDocs() {
+    if (!report) return;
+    try {
+      setExportingGdocs(true);
+      setExportProgress("Memulai...");
+      setExportProgressPct(0);
+
+      // Check if already connected
+      const status = await apiFetch<{ connected: boolean; authUrl?: string }>("/integrations/google/status");
+      if (!status.connected) {
+        // Get auth URL and redirect
+        const auth = await apiFetch<{ authUrl: string }>("/integrations/google/auth-url");
+        window.open(auth.authUrl, "_blank", "width=600,height=700");
+        addToast({ type: "info", title: "Google authorization opened", description: "Complete the authorization in the new window, then come back and click export again." });
+        setExportingGdocs(false);
+        return;
+      }
+
+      // Connected — queue export job
+      setExportProgress("Mengantrekan export...");
+      const result = await apiFetch<{ jobId: number; status: string; message: string }>(
+        `/reports/${report.id}/export/google-docs`,
+        { method: "POST" }
+      );
+
+      setExportJobId(result.jobId);
+
+      // Poll for completion
+      const pollInterval = setInterval(async () => {
+        try {
+          const jobStatus = await apiFetch<{
+            jobId?: number;
+            status: string;
+            progress?: number;
+            message?: string;
+            error?: string;
+            hasExport?: boolean;
+            documentUrl?: string;
+          }>(`/reports/${report.id}/export/status`);
+
+          if (jobStatus.status === "completed") {
+            clearInterval(pollInterval);
+            setExportingGdocs(false);
+            setExportProgress("Selesai!");
+            setExportProgressPct(100);
+
+            if (jobStatus.documentUrl) {
+              setGdocUrl(jobStatus.documentUrl);
+              setReport((prev) => prev ? { ...prev, googleDocUrl: jobStatus.documentUrl } : prev);
+            }
+
+            addToast({
+              type: "success",
+              title: "Google Docs document created",
+              description: "Your report has been exported to Google Docs.",
+            });
+          } else if (jobStatus.status === "failed") {
+            clearInterval(pollInterval);
+            setExportingGdocs(false);
+            setExportProgress("Gagal");
+            addToast({ type: "error", title: "Export failed", description: jobStatus.error || "Unknown error" });
+          } else if (jobStatus.status === "not_found" || jobStatus.status === "queued") {
+            setExportProgress("Menunggu giliran...");
+            setExportProgressPct(0);
+          } else {
+            setExportProgress(jobStatus.message || "Memproses...");
+            setExportProgressPct(jobStatus.progress || 0);
+          }
+        } catch (pollErr: any) {
+          // Ignore polling errors temporarily
+        }
+      }, 2000);
+
+      // Clean up polling after 5 minutes
+      setTimeout(() => clearInterval(pollInterval), 300000);
+    } catch (err: any) {
+      setExportingGdocs(false);
+      if (err.message?.includes("not connected")) {
+        const auth = await apiFetch<{ authUrl: string }>("/integrations/google/auth-url");
+        window.open(auth.authUrl, "_blank", "width=600,height=700");
+        addToast({ type: "info", title: "Connect your Google account", description: "Complete the authorization in the new window." });
+      } else if (err.message?.includes("expired")) {
+        const auth = await apiFetch<{ authUrl: string }>("/integrations/google/auth-url");
+        window.open(auth.authUrl, "_blank", "width=600,height=700");
+        addToast({ type: "info", title: "Google connection expired", description: "Please reconnect your Google account." });
+      } else {
+        addToast({ type: "error", title: "Export failed", description: err.message });
+      }
+    }
   }
 
   const repoMap = useMemo(() => new Map(repos.map((repo) => [repo.id, repo])), [repos]);
@@ -362,7 +480,21 @@ export default function CollectionDetail() {
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" onClick={() => setReportMode((mode) => mode === "split" ? "preview" : "split")}><ExternalLink /> {reportMode === "split" ? "Preview only" : "Split view"}</Button>
                   <Button size="sm" variant="outline" onClick={() => navigator.clipboard.writeText(reportDraft)}><Clipboard /> Copy</Button>
-                  <Button size="sm" variant="outline" onClick={exportMarkdown}><Download /> Export</Button>
+                  <Button size="sm" variant="outline" onClick={exportMarkdown}><Download /> Markdown</Button>
+                  {googleConnected ? (
+                    <>
+                      <Button size="sm" variant="outline" onClick={exportToGoogleDocs} disabled={exportingGdocs}>
+                        {exportingGdocs ? <Loader2 className="animate-spin" /> : <FileText />} {gdocUrl ? "Re-export" : "Google Docs"}
+                      </Button>
+                      {gdocUrl && (
+                        <Button size="sm" variant="outline" onClick={() => window.open(gdocUrl, "_blank")}><ExternalLink /> Open in Docs</Button>
+                      )}
+                    </>
+                  ) : (
+                    <Button size="sm" variant="outline" onClick={exportToGoogleDocs} disabled={exportingGdocs}>
+                      {exportingGdocs ? <Loader2 className="animate-spin" /> : <ExternalLink />} Export to Google Docs
+                    </Button>
+                  )}
                   <Button size="sm" onClick={saveReport} disabled={busy === "save" || reportDraft === report.content}>{busy === "save" ? <Loader2 className="animate-spin" /> : <Save />} Save</Button>
                 </div>
               </div>
@@ -504,6 +636,17 @@ function renderMarkdown(content: string) {
     }
     if (inCodeBlock) {
       codeBlockContent.push(line);
+      continue;
+    }
+
+    // Check for special markers first
+    const trimmed = line.trim();
+    if (trimmed === "<!-- GOOGLE_DOCS_TOC -->") {
+      elements.push(<div key={index} className="rounded-lg border border-dashed border-muted-foreground/30 bg-muted/30 px-4 py-2 text-center text-xs text-muted-foreground italic">[Daftar isi otomatis akan dibuat saat export ke Google Docs]</div>);
+      continue;
+    }
+    if (trimmed === "<!-- PAGE_BREAK -->") {
+      elements.push(<div key={index} className="my-4 flex items-center gap-2 text-xs text-muted-foreground/50"><hr className="flex-1 border-dashed border-muted-foreground/20" /><span className="italic">Page break</span><hr className="flex-1 border-dashed border-muted-foreground/20" /></div>);
       continue;
     }
 

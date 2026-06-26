@@ -112,6 +112,8 @@ function getDefaultTemplate(): string {
 
 ## DAFTAR ISI
 
+<!-- GOOGLE_DOCS_TOC -->
+
 {{daftarIsi}}
 
 ---
@@ -645,20 +647,26 @@ function generateKataPengantar(
 // ── Daftar Isi Generator ──
 
 function generateDaftarIsi(sections: SectionData[], mode: ReportMode): string {
-  const includeAppendices = mode !== "ringkas";
   const lines: string[] = [];
 
-  lines.push("KATA PENGANTAR");
+  // Markdown/HTML fallback: simple nested outline without page numbers or dot leaders.
+  // Google Docs export will detect the DAFTAR ISI heading and insert a native TOC element.
+  lines.push("- KATA PENGANTAR");
+
   for (const [si, section] of sections.entries()) {
     const roman = ROMAN[si] || `${si + 1}`;
-    lines.push(`${roman}. ${section.name}`);
+    lines.push(`  - ${roman}. ${section.name}`);
     for (const repo of section.repos) {
-      lines.push(`     ${repo.repoName}`);
+      lines.push(`    - ${repo.repoName}`);
+      for (const [wi, item] of repo.workItems.entries()) {
+        const judul = item.judul || item.title || "Item pekerjaan";
+        lines.push(`      - ${String.fromCharCode(97 + wi)}. ${judul}`);
+      }
     }
   }
-  lines.push(`${ROMAN[sections.length] || "IV"}. KESIMPULAN`);
 
-  lines.push(`${ROMAN[sections.length + 1] || "V"}. LAMPIRAN`);
+  lines.push(`  - ${ROMAN[sections.length] || "IV"}. KESIMPULAN`);
+  lines.push(`  - ${ROMAN[sections.length + 1] || "V"}. LAMPIRAN`);
 
   const appendixLetters = APPENDIX_MODES[mode];
   for (const letter of appendixLetters) {
@@ -670,7 +678,7 @@ function generateDaftarIsi(sections: SectionData[], mode: ReportMode): string {
       E: "Lampiran E — Pemetaan Bukti",
       F: "Lampiran F — Ringkasan Repositori",
     };
-    lines.push(names[letter] || `Lampiran ${letter}`);
+    lines.push(`    - ${names[letter] || `Lampiran ${letter}`}`);
   }
 
   return lines.join("\n");

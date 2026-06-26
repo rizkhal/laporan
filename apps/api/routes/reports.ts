@@ -1,10 +1,12 @@
 import { Hono } from "hono";
 import { db } from "../db/index";
 import * as schema from "../db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { requireAuth, assertOwnership } from "../lib/auth";
 import { getAllStrategies, getStrategy } from "../services/report-strategies";
+import { exportToGoogleDocs } from "../services/google-docs-exporter";
+import { createJob } from "../services/job-runner";
 
 const router = new Hono();
 
@@ -167,6 +169,149 @@ router.put("/:id", async (c) => {
     .where(eq(schema.reports.id, id))
     .get();
   return c.json(updated);
+});
+
+// Export report to Google Docs (async with job queue)
+router.post("/:id/export/google-docs", async (c) => {
+  const ctx = requireAuth(c);
+  const id = parseInt(c.req.param("id"));
+
+  // Get the report
+  const report = db
+    .select()
+    .from(schema.reports)
+    .where(eq(schema.reports.id, id))
+    .get();
+  if (!report) return c.json({ error: "Report not found" }, 404);
+
+  // Verify ownership through collection
+  const collection = db
+    .select()
+    .from(schema.collections)
+    .where(eq(schema.collections.id, report.collectionId))
+    .get();
+  assertOwnership(collection, ctx.workspace.id, "Report");
+
+  // Get Google integration tokens
+  const integration = db
+    .select()
+    .from(schema.googleIntegrations)
+    .where(eq(schema.googleIntegrations.workspaceId, ctx.workspace.id))
+    .get();
+
+  if (!integration) {
+    return c.json({ error: "Google account not connected. Connect your Google account first." }, 400);
+  }
+
+  if (!integration.accessToken || !integration.refreshToken) {
+    return c.json({ error: "Google tokens not available. Reconnect your Google account." }, 400);
+  }
+
+  // Build document title
+  const period = collection?.title || `Report ${collection?.year}-${String(collection?.month).padStart(2, "0")}`;
+  const documentTitle = `Laporan Kemajuan Pekerjaan - ${period} - ${ctx.workspace.name}`;
+
+  // Create a background job for the export
+  const job = createJob(ctx.workspace.id, "export_google_docs", {
+    reportId: id,
+    accessToken: integration.accessToken,
+    refreshToken: integration.refreshToken,
+    documentTitle,
+  });
+
+  return c.json({
+    jobId: job.id,
+    status: "queued",
+    message: "Google Docs export queued.",
+  });
+});
+
+// Check export status
+router.get("/:id/export/status", (c) => {
+  const ctx = requireAuth(c);
+  const id = parseInt(c.req.param("id"));
+
+  // Verify ownership through collection
+  const report = db
+    .select()
+    .from(schema.reports)
+    .where(eq(schema.reports.id, id))
+    .get();
+  if (!report) return c.json({ error: "Report not found" }, 404);
+
+  const collection = db
+    .select()
+    .from(schema.collections)
+    .where(eq(schema.collections.id, report.collectionId))
+    .get();
+  assertOwnership(collection, ctx.workspace.id, "Report");
+
+  // Find the export job for this report by searching payload for reportId
+  // Use the raw option since we need to search JSON payload
+  const allExportJobs = db
+    .select()
+    .from(schema.jobs)
+    .where(
+      and(
+        eq(schema.jobs.workspaceId, ctx.workspace.id),
+        eq(schema.jobs.type, "export_google_docs"),
+      ),
+    )
+    .all();
+
+  // Filter jobs by checking if payload contains the report ID
+  const exportJob = allExportJobs
+    .reverse()
+    .find((job) => {
+      try {
+        const payload = JSON.parse(job.payload || "{}");
+        return payload.reportId === id;
+      } catch {
+        return false;
+      }
+    });
+
+  if (!exportJob) {
+    return c.json({
+      status: "not_found",
+      hasExport: !!report.googleDocUrl,
+      documentUrl: report.googleDocUrl,
+    });
+  }
+
+  return c.json({
+    jobId: exportJob.id,
+    status: exportJob.status,
+    progress: exportJob.progress,
+    message: exportJob.message,
+    error: exportJob.error,
+    hasExport: !!report.googleDocUrl,
+    documentUrl: report.googleDocUrl,
+  });
+});
+
+// Download report as markdown
+router.get("/:id/download/markdown", async (c) => {
+  const ctx = requireAuth(c);
+  const id = parseInt(c.req.param("id"));
+
+  const report = db
+    .select()
+    .from(schema.reports)
+    .where(eq(schema.reports.id, id))
+    .get();
+  if (!report) return c.json({ error: "Report not found" }, 404);
+
+  const collection = db
+    .select()
+    .from(schema.collections)
+    .where(eq(schema.collections.id, report.collectionId))
+    .get();
+  assertOwnership(collection, ctx.workspace.id, "Report");
+
+  c.header("Content-Type", "text/markdown; charset=utf-8");
+  c.header("Content-Disposition", `attachment; filename="laporan-kemajuan-pekerjaan-${collection?.title || "report"}.md"`);
+  return c.body(report.content);
 });
 
 export { router as reportsRouter };
