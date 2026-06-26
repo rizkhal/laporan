@@ -15,6 +15,7 @@ interface Repo {
   name: string;
   localPath: string;
   remoteUrl: string;
+  category: string;
   enabled: boolean;
   authorNames: string;
   authorEmails: string;
@@ -39,7 +40,7 @@ export default function Repositories() {
   const [error, setError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingRepo, setEditingRepo] = useState<Repo | null>(null);
-  const [form, setForm] = useState({ name: "", remoteUrl: "", enabled: true, authorNames: "", authorEmails: "" });
+  const [form, setForm] = useState({ name: "", remoteUrl: "", category: "general", enabled: true, authorNames: "", authorEmails: "" });
   const [saving, setSaving] = useState(false);
 
   // Test connection state
@@ -91,6 +92,7 @@ export default function Repositories() {
     setForm({
       name: repo.name,
       remoteUrl: repo.remoteUrl,
+      category: repo.category || "general",
       enabled: repo.enabled,
       authorNames: JSON.parse(repo.authorNames || "[]").join("\n"),
       authorEmails: JSON.parse(repo.authorEmails || "[]").join("\n"),
@@ -104,6 +106,7 @@ export default function Repositories() {
       const body = {
         name: form.name,
         remoteUrl: form.remoteUrl,
+        category: form.category,
         enabled: form.enabled,
         authorNames: form.authorNames.split("\n").map(s => s.trim()).filter(Boolean),
         authorEmails: form.authorEmails.split("\n").map(s => s.trim()).filter(Boolean),
@@ -255,6 +258,7 @@ export default function Repositories() {
                         <Badge variant={repo.enabled ? "success" : "secondary"}>
                           {repo.enabled ? "Enabled" : "Disabled"}
                         </Badge>
+                        <Badge variant="secondary" className="text-[10px]">{repo.category || "general"}</Badge>
                       </CardTitle>
                       <p className="text-sm text-muted-foreground mt-1 font-mono truncate">{repo.remoteUrl}</p>
                       {repo.cloneStatus === "connected" && (
@@ -324,6 +328,21 @@ export default function Repositories() {
             <div>
               <Label>Git SSH URL</Label>
               <Input value={form.remoteUrl} onChange={e => setForm({...form, remoteUrl: e.target.value})} placeholder="git@github.com:owner/repo.git" />
+            </div>
+            <div>
+              <Label>Category</Label>
+              <select value={form.category} onChange={e => setForm({...form, category: e.target.value})} className="h-10 w-full rounded-lg border border-input bg-card px-3 text-sm text-foreground shadow-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/25 dark:border-white/[0.09] dark:bg-white/[0.035] dark:shadow-none">
+                <option value="general">General</option>
+                <option value="feature">Feature</option>
+                <option value="bugfix">Bug Fix</option>
+                <option value="refactor">Refactor</option>
+                <option value="performance">Performance</option>
+                <option value="dependency">Dependency</option>
+                <option value="infrastructure">Infrastructure</option>
+                <option value="documentation">Documentation</option>
+                <option value="testing">Testing</option>
+                <option value="other">Other</option>
+              </select>
             </div>
 
             <div>

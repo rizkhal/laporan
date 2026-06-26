@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { apiFetch } from "../lib/utils";
 import {
   ArrowLeft, ArrowRight, Bot, Check, ChevronDown, ChevronRight, Clipboard,
-  Columns2, Download, FileCode2, FileText, GitBranch, GitCommit,
+  Columns2, FileCode2, FileText, GitBranch, GitCommit,
   Loader2, Monitor, Pencil, Save, Settings2, Sparkles,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
@@ -154,17 +154,7 @@ export default function CollectionDetail() {
     }
   }
 
-  async function exportMarkdown() {
-    const period = collection?.title || "monthly-report";
-    const slug = period.toLowerCase().replace(/\s+/g, "-");
-    const blob = new Blob([reportDraft], { type: "text/markdown" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `laporan-kemajuan-pekerjaan-${slug}.md`;
-    anchor.click();
-    URL.revokeObjectURL(url);
-  }
+
 
 
 
@@ -371,7 +361,7 @@ export default function CollectionDetail() {
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" onClick={() => setReportMode((mode) => mode === "split" ? "preview" : "split")}>{reportMode === "split" ? <Monitor className="size-3.5" /> : <Columns2 className="size-3.5" />} {reportMode === "split" ? "Preview only" : "Split view"}</Button>
                   <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(reportDraft); setCopied(true); setTimeout(() => setCopied(false), 2000); }}>{copied ? <Check className="size-3.5 text-success-foreground" /> : <Clipboard />} {copied ? "Copied!" : "Copy"}</Button>
-                  <Button size="sm" variant="outline" onClick={exportMarkdown}><Download /> Markdown</Button>
+
                   <Button size="sm" onClick={saveReport} disabled={busy === "save" || reportDraft === report.content}>{busy === "save" ? <Loader2 className="animate-spin" /> : <Save />} Save</Button>
                 </div>
               </div>
