@@ -8,6 +8,7 @@
 import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
+import { mkdirSync } from "fs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -39,6 +40,7 @@ export function runMigration(): void {
 
   let sqlite: Database.Database | null = null;
   try {
+    mkdirSync(path.dirname(getDbPath()), { recursive: true });
     sqlite = new Database(getDbPath());
     sqlite.pragma("journal_mode = WAL");
     sqlite.pragma("foreign_keys = OFF");
