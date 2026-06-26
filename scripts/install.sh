@@ -22,7 +22,6 @@ INSTALL_DIR="${INSTALL_DIR:-/opt/laporan}"
 REPO_URL="${REPO_URL:-https://github.com/rizkhal/laporan.git}"
 BRANCH="${BRANCH:-main}"
 PORT="${PORT:-3000}"
-LAPORAN_USER="${LAPORAN_USER:-laporan}"
 
 ADMIN_NAME="${ADMIN_NAME:-Admin}"
 ADMIN_EMAIL="${ADMIN_EMAIL:-}"
@@ -72,7 +71,6 @@ info "Installing system dependencies..."
 
 apt-get update -qq
 
-# Install git, curl if missing
 DEPS=""
 for dep in git curl; do
   if ! command -v "$dep" &>/dev/null; then
@@ -115,18 +113,7 @@ fi
 ok "npm $(npm -v) found"
 
 # ═══════════════════════════════════════════════════════════════
-# 3 ── Create system user
-# ═══════════════════════════════════════════════════════════════
-info "Creating system user..."
-if id "$LAPORAN_USER" &>/dev/null; then
-  ok "User $LAPORAN_USER already exists"
-else
-  useradd --system --create-home --shell /usr/sbin/nologin "$LAPORAN_USER" 2>/dev/null || true
-  ok "User $LAPORAN_USER created"
-fi
-
-# ═══════════════════════════════════════════════════════════════
-# 4 ── Clone / pull repository
+# 3 ── Clone / pull repository
 # ═══════════════════════════════════════════════════════════════
 info "Cloning repository..."
 
@@ -143,7 +130,7 @@ fi
 ok "Repository ready at $INSTALL_DIR"
 
 # ═══════════════════════════════════════════════════════════════
-# 5 ── Install npm dependencies
+# 4 ── Install npm dependencies
 # ═══════════════════════════════════════════════════════════════
 info "Installing npm dependencies..."
 cd "$INSTALL_DIR"
@@ -151,7 +138,7 @@ npm install 2>&1 | tail -1
 ok "Dependencies installed"
 
 # ═══════════════════════════════════════════════════════════════
-# 6 ── Build frontend
+# 5 ── Build frontend
 # ═══════════════════════════════════════════════════════════════
 info "Building frontend..."
 cd "$INSTALL_DIR"
@@ -159,7 +146,7 @@ npm run build 2>&1 | tail -1
 ok "Frontend built"
 
 # ═══════════════════════════════════════════════════════════════
-# 7 ── Configure environment
+# 6 ── Configure environment
 # ═══════════════════════════════════════════════════════════════
 if [[ -f "$INSTALL_DIR/apps/api/.env" ]]; then
   ok "Environment file exists (skipping)"
@@ -209,7 +196,7 @@ EOF
 fi
 
 # ═══════════════════════════════════════════════════════════════
-# 8 ── Create admin account (start server temporarily)
+# 7 ── Create admin account (start server temporarily)
 # ═══════════════════════════════════════════════════════════════
 info "Creating admin account..."
 
@@ -252,7 +239,7 @@ else
     ERROR="Unknown error: $RESPONSE"
   fi
   err "Failed to create admin account: $ERROR"
-  warn "You can create an account later via the API or by running the server interactively."
+  warn "You can create an account later by running the server and calling the register API."
 fi
 
 # Stop the temporary server
@@ -261,75 +248,9 @@ wait "$SERVER_PID" 2>/dev/null || true
 sleep 1
 
 # ═══════════════════════════════════════════════════════════════
-# 9 ── Create systemd service
-# ═══════════════════════════════════════════════════════════════
-info "Creating systemd service..."
-
-cat > /etc/systemd/system/laporan.service << SYSTEMDEOF
-[Unit]
-Description=laporan — Monthly Engineering Reports
-Documentation=https://github.com/rizkhal/laporan
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=${LAPORAN_USER}
-Group=${LAPORAN_USER}
-WorkingDirectory=${INSTALL_DIR}
-ExecStart=${INSTALL_DIR}/node_modules/.bin/tsx ${INSTALL_DIR}/apps/api/src/index.ts
-Restart=always
-RestartSec=5
-Environment=NODE_ENV=production
-Environment=PORT=${PORT}
-Environment=DATABASE_URL=file:${INSTALL_DIR}/apps/api/db/dev.db
-
-[Install]
-WantedBy=multi-user.target
-SYSTEMDEOF
-
-systemctl daemon-reload
-systemctl enable laporan.service
-ok "systemd service created and enabled"
-
-# ═══════════════════════════════════════════════════════════════
-# 10 ── Set ownership
-# ═══════════════════════════════════════════════════════════════
-info "Setting file ownership..."
-chown -R "$LAPORAN_USER":"$LAPORAN_USER" "$INSTALL_DIR"
-ok "Ownership set to $LAPORAN_USER"
-
-# ═══════════════════════════════════════════════════════════════
-# 11 ── Start service
-# ═══════════════════════════════════════════════════════════════
-info "Starting laporan service..."
-systemctl start laporan.service
-sleep 3
-
-if systemctl is-active --quiet laporan.service; then
-  ok "laporan is running (systemd: active)"
-else
-  warn "Service did not start. Check: journalctl -u laporan.service -n 50 --no-pager"
-  warn "Starting manually for debugging..."
-  cd "$INSTALL_DIR"
-  sudo -u "$LAPORAN_USER" npx tsx apps/api/src/index.ts &
-  MANUAL_PID=$!
-  sleep 3
-  if kill -0 "$MANUAL_PID" 2>/dev/null; then
-    warn "Manual start succeeded but systemd failed. Check the service file at /etc/systemd/system/laporan.service"
-    kill "$MANUAL_PID" 2>/dev/null || true
-    wait "$MANUAL_PID" 2>/dev/null || true
-    warn "Fix the systemd service then run: systemctl start laporan"
-  else
-    err "Service failed to start even manually. Check the logs above."
-    exit 1
-  fi
-fi
-
-# ═══════════════════════════════════════════════════════════════
 # Done
 # ═══════════════════════════════════════════════════════════════
-FRONTEND_URL=$(grep '^FRONTEND_URL=' "$INSTALL_DIR/apps/api/.env" | cut -d= -f2-)
+FRONTEND_URL=$(grep '^FRONTEND_URL=' "$INSTALL_DIR/apps/api/.env" 2>/dev/null | cut -d= -f2-)
 FRONTEND_URL="${FRONTEND_URL:-http://localhost:$PORT}"
 
 echo ""
@@ -337,44 +258,19 @@ echo -e "${GREEN}  ╔═══════════════════�
 echo -e "${GREEN}  ║       Installation complete! 🎉             ║${NC}"
 echo -e "${GREEN}  ╚══════════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "  ${CYAN}Dashboard:${NC}  $FRONTEND_URL"
+echo -e "  ${CYAN}Install dir:${NC} $INSTALL_DIR"
 echo -e "  ${CYAN}Email:${NC}      $ADMIN_EMAIL"
-echo -e "  ${CYAN}Docs:${NC}       $FRONTEND_URL/docs"
 echo ""
-echo -e "  ${YELLOW}Next steps:${NC}"
-echo -e "  1. Set up a reverse proxy (Nginx / Caddy) pointing to port $PORT"
+echo -e "  ${YELLOW}To start the application:${NC}"
 echo ""
-echo -e "     Example Nginx config:"
-echo -e "     ${BLUE}server {${NC}"
-echo -e "     ${BLUE}    listen 80;${NC}"
-echo -e "     ${BLUE}    server_name your-domain.com;${NC}"
-echo -e "     ${BLUE}    return 301 https://\\\$host\\\$request_uri;${NC}"
-echo -e "     ${BLUE}}${NC}"
-echo -e "     ${BLUE}server {${NC}"
-echo -e "     ${BLUE}    listen 443 ssl;${NC}"
-echo -e "     ${BLUE}    server_name your-domain.com;${NC}"
-echo -e "     ${BLUE}    ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;${NC}"
-echo -e "     ${BLUE}    ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;${NC}"
-echo -e "     ${BLUE}    root ${INSTALL_DIR}/apps/web/dist;${NC}"
-echo -e "     ${BLUE}    index index.html;${NC}"
-echo -e "     ${BLUE}    location / {${NC}"
-echo -e "     ${BLUE}        try_files \\\$uri \\\$uri/ /index.html;${NC}"
-echo -e "     ${BLUE}    }${NC}"
-echo -e "     ${BLUE}    location /api/ {${NC}"
-echo -e "     ${BLUE}        proxy_pass http://127.0.0.1:${PORT};${NC}"
-echo -e "     ${BLUE}        proxy_set_header Host \\\$host;${NC}"
-echo -e "     ${BLUE}        proxy_set_header X-Real-IP \\\$remote_addr;${NC}"
-echo -e "     ${BLUE}    }${NC}"
-echo -e "     ${BLUE}}${NC}"
+echo -e "    ${BLUE}cd $INSTALL_DIR${NC}"
+echo -e "    ${BLUE}npm run dev${NC}"
 echo ""
-echo -e "  2. Access the dashboard and log in with your admin credentials"
-echo -e "  3. Add SSH keys and repositories in Settings"
-echo -e "  4. Create a collection and analyze your first repo"
+echo -e "  This starts both the API server (port $PORT) and the frontend dev server."
 echo ""
-echo -e "  ${YELLOW}Management commands:${NC}"
-echo -e "    systemctl status laporan       — Check status"
-echo -e "    journalctl -u laporan -f       — View live logs"
-echo -e "    systemctl restart laporan      — Restart"
-echo -e "    systemctl stop laporan         — Stop"
-echo -e "    systemctl start laporan        — Start"
+echo -e "  ${YELLOW}For production:${NC}"
+echo -e "  Set up a reverse proxy (Nginx / Caddy) to serve the built frontend"
+echo -e "  at ${INSTALL_DIR}/apps/web/dist and proxy /api/ to port $PORT."
+echo ""
+echo -e "  ${YELLOW}Docs:${NC}  https://github.com/rizkhal/laporan"
 echo ""
