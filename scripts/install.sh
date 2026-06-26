@@ -73,14 +73,14 @@ info "Installing system dependencies..."
 apt-get update -qq
 
 # Install git, curl if missing
-DEPS="git curl"
+DEPS=""
 for dep in git curl; do
   if ! command -v "$dep" &>/dev/null; then
     DEPS="$DEPS $dep"
   fi
 done
 
-if [[ "$DEPS" != "git curl" ]]; then
+if [[ -n "$DEPS" ]]; then
   apt-get install -y -qq $DEPS
 fi
 ok "System dependencies ready"
@@ -115,14 +115,7 @@ fi
 ok "npm $(npm -v) found"
 
 # ═══════════════════════════════════════════════════════════════
-# 3 ── Install PM2
-# ═══════════════════════════════════════════════════════════════
-info "Installing PM2..."
-npm install -g pm2 2>/dev/null
-ok "PM2 $(pm2 -v 2>/dev/null || echo 'installed')"
-
-# ═══════════════════════════════════════════════════════════════
-# 4 ── Create system user
+# 3 ── Create system user
 # ═══════════════════════════════════════════════════════════════
 info "Creating system user..."
 if id "$LAPORAN_USER" &>/dev/null; then
@@ -133,7 +126,7 @@ else
 fi
 
 # ═══════════════════════════════════════════════════════════════
-# 5 ── Clone / pull repository
+# 4 ── Clone / pull repository
 # ═══════════════════════════════════════════════════════════════
 info "Cloning repository..."
 
@@ -150,7 +143,7 @@ fi
 ok "Repository ready at $INSTALL_DIR"
 
 # ═══════════════════════════════════════════════════════════════
-# 6 ── Install npm dependencies
+# 5 ── Install npm dependencies
 # ═══════════════════════════════════════════════════════════════
 info "Installing npm dependencies..."
 cd "$INSTALL_DIR"
@@ -158,7 +151,7 @@ npm install 2>&1 | tail -1
 ok "Dependencies installed"
 
 # ═══════════════════════════════════════════════════════════════
-# 7 ── Build frontend
+# 6 ── Build frontend
 # ═══════════════════════════════════════════════════════════════
 info "Building frontend..."
 cd "$INSTALL_DIR"
@@ -166,21 +159,15 @@ npm run build 2>&1 | tail -1
 ok "Frontend built"
 
 # ═══════════════════════════════════════════════════════════════
-# 8 ── Configure environment
+# 7 ── Configure environment
 # ═══════════════════════════════════════════════════════════════
 if [[ -f "$INSTALL_DIR/apps/api/.env" ]]; then
   ok "Environment file exists (skipping)"
-  # shellcheck source=/dev/null
-  source "$INSTALL_DIR/apps/api/.env"
 else
   info "Configuring environment..."
 
   # Redirect stdin to terminal for interactive prompts when piped
-  if [[ -t 0 ]]; then
-    # stdin is a terminal (direct execution)
-    :
-  else
-    # stdin is a pipe (curl | bash) — reopen /dev/tty
+  if [[ ! -t 0 ]]; then
     exec </dev/tty
   fi
 
@@ -222,12 +209,11 @@ EOF
 fi
 
 # ═══════════════════════════════════════════════════════════════
-# 9 ── Create admin account (start server temporarily)
+# 8 ── Create admin account (start server temporarily)
 # ═══════════════════════════════════════════════════════════════
 info "Creating admin account..."
 
 if [[ -z "$ADMIN_EMAIL" || -z "$ADMIN_PASSWORD" ]]; then
-  # Redirect stdin to terminal for interactive prompts when piped
   if [[ ! -t 0 ]]; then
     exec </dev/tty
   fi
@@ -275,70 +261,75 @@ wait "$SERVER_PID" 2>/dev/null || true
 sleep 1
 
 # ═══════════════════════════════════════════════════════════════
-# 10 ── Configure PM2 ecosystem
+# 9 ── Create systemd service
 # ═══════════════════════════════════════════════════════════════
-info "Configuring PM2..."
-cat > "$INSTALL_DIR/ecosystem.config.cjs" << PM2EOF
-module.exports = {
-  apps: [
-    {
-      name: "laporan-api",
-      cwd: "${INSTALL_DIR}",
-      script: "apps/api/src/index.ts",
-      interpreter: "${INSTALL_DIR}/node_modules/.bin/tsx",
-      instances: 1,
-      exec_mode: "fork",
-      autorestart: true,
-      env: {
-        NODE_ENV: "production",
-        PORT: ${PORT},
-      },
-    },
-  ],
-};
-PM2EOF
-ok "PM2 config written"
+info "Creating systemd service..."
+
+cat > /etc/systemd/system/laporan.service << SYSTEMDEOF
+[Unit]
+Description=laporan — Monthly Engineering Reports
+Documentation=https://github.com/rizkhal/laporan
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=${LAPORAN_USER}
+Group=${LAPORAN_USER}
+WorkingDirectory=${INSTALL_DIR}
+ExecStart=${INSTALL_DIR}/node_modules/.bin/tsx ${INSTALL_DIR}/apps/api/src/index.ts
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=PORT=${PORT}
+Environment=DATABASE_URL=file:${INSTALL_DIR}/apps/api/db/dev.db
+
+[Install]
+WantedBy=multi-user.target
+SYSTEMDEOF
+
+systemctl daemon-reload
+systemctl enable laporan.service
+ok "systemd service created and enabled"
 
 # ═══════════════════════════════════════════════════════════════
-# 11 ── Set ownership
+# 10 ── Set ownership
 # ═══════════════════════════════════════════════════════════════
 info "Setting file ownership..."
 chown -R "$LAPORAN_USER":"$LAPORAN_USER" "$INSTALL_DIR"
 ok "Ownership set to $LAPORAN_USER"
 
 # ═══════════════════════════════════════════════════════════════
-# 12 ── Start application via PM2
+# 11 ── Start service
 # ═══════════════════════════════════════════════════════════════
-info "Starting application..."
+info "Starting laporan service..."
+systemctl start laporan.service
+sleep 3
 
-# Need to run as root for PM2 (it handles the user switching internally)
-cd "$INSTALL_DIR"
-pm2 start ecosystem.config.cjs 2>&1
-pm2 save 2>/dev/null || true
-
-# Configure PM2 to restart on boot
-pm2 startup systemd -u root --hp /root 2>/dev/null || true
-ok "PM2 startup configured"
-
-# ═══════════════════════════════════════════════════════════════
-# 13 ── Verify
-# ═══════════════════════════════════════════════════════════════
-sleep 2
-if pm2 show laporan-api &>/dev/null; then
-  STATUS=$(pm2 show laporan-api | grep status | awk '{print $NF}')
-  if [[ "$STATUS" == "online" ]]; then
-    ok "laporan-api is running (status: online)"
-  else
-    warn "laporan-api status: $STATUS. Check 'pm2 logs laporan-api' for details."
-  fi
+if systemctl is-active --quiet laporan.service; then
+  ok "laporan is running (systemd: active)"
 else
-  err "laporan-api not found in PM2. Check 'pm2 list' and 'pm2 logs'."
-  exit 1
+  warn "Service did not start. Check: journalctl -u laporan.service -n 50 --no-pager"
+  warn "Starting manually for debugging..."
+  cd "$INSTALL_DIR"
+  sudo -u "$LAPORAN_USER" npx tsx apps/api/src/index.ts &
+  MANUAL_PID=$!
+  sleep 3
+  if kill -0 "$MANUAL_PID" 2>/dev/null; then
+    warn "Manual start succeeded but systemd failed. Check the service file at /etc/systemd/system/laporan.service"
+    kill "$MANUAL_PID" 2>/dev/null || true
+    wait "$MANUAL_PID" 2>/dev/null || true
+    warn "Fix the systemd service then run: systemctl start laporan"
+  else
+    err "Service failed to start even manually. Check the logs above."
+    exit 1
+  fi
 fi
 
 # ═══════════════════════════════════════════════════════════════
 # Done
 # ═══════════════════════════════════════════════════════════════
+FRONTEND_URL=$(grep '^FRONTEND_URL=' "$INSTALL_DIR/apps/api/.env" | cut -d= -f2-)
 FRONTEND_URL="${FRONTEND_URL:-http://localhost:$PORT}"
 
 echo ""
@@ -352,7 +343,7 @@ echo -e "  ${CYAN}Docs:${NC}       $FRONTEND_URL/docs"
 echo ""
 echo -e "  ${YELLOW}Next steps:${NC}"
 echo -e "  1. Set up a reverse proxy (Nginx / Caddy) pointing to port $PORT"
-echo -e ""
+echo ""
 echo -e "     Example Nginx config:"
 echo -e "     ${BLUE}server {${NC}"
 echo -e "     ${BLUE}    listen 80;${NC}"
@@ -381,8 +372,9 @@ echo -e "  3. Add SSH keys and repositories in Settings"
 echo -e "  4. Create a collection and analyze your first repo"
 echo ""
 echo -e "  ${YELLOW}Management commands:${NC}"
-echo -e "    pm2 status              — Check status"
-echo -e "    pm2 logs laporan-api    — View logs"
-echo -e "    pm2 restart laporan-api — Restart"
-echo -e "    pm2 stop laporan-api    — Stop"
+echo -e "    systemctl status laporan       — Check status"
+echo -e "    journalctl -u laporan -f       — View live logs"
+echo -e "    systemctl restart laporan      — Restart"
+echo -e "    systemctl stop laporan         — Stop"
+echo -e "    systemctl start laporan        — Start"
 echo ""
