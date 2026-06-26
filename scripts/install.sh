@@ -132,18 +132,9 @@ ok "Node.js $(node -v) ready"
 # 3 ── Clone / update repository
 # ═══════════════════════════════════════════════════════════════
 if [[ -d "$INSTALL_DIR" ]]; then
-  warn "$INSTALL_DIR already exists."
-  if [[ -d "$INSTALL_DIR/.git" ]]; then
-    info "Pulling latest changes..."
-    cd "$INSTALL_DIR"
-    git fetch origin "$BRANCH"
-    git reset --hard "origin/$BRANCH"
-    cd "${OLDPWD:-.}"
-  else
-    err "$INSTALL_DIR exists but is not a git repository."
-    err "Remove it first: rm -rf $INSTALL_DIR"
-    exit 1
-  fi
+  err "$INSTALL_DIR already exists."
+  err "Remove it first: rm -rf $INSTALL_DIR"
+  exit 1
 else
   run_with_spinner "Cloning repository..." git clone --depth=1 -b "$BRANCH" "$REPO_URL" "$INSTALL_DIR"
 fi
