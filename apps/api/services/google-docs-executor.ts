@@ -1,11 +1,16 @@
 /**
  * Google Docs Chunk Executor
  *
- * Executes a single document chunk against the Google Docs API
- * using the googleapis library (handles OAuth2 token refresh automatically).
+ * Executes a single document chunk against the Google Docs API.
+ * All API calls use the googleapis library (handles OAuth2 refresh).
+ *
+ * RULES:
+ *   - Headings are inserted as CLEAN TEXT (no `## ` markdown prefix)
+ *   - TOC marker is NOT inserted as placeholder text (only position tracked)
+ *   - No markdown artifacts in the document output
  */
 
-import { type DocumentChunk, type Segment } from "./google-docs-ast";
+import { type DocumentChunk } from "./google-docs-ast";
 
 // ── Types ──
 
@@ -13,17 +18,14 @@ export interface ChunkResult {
   chunkId: string;
   success: boolean;
   error?: string;
-  tocPosition?: number;
+  /** The tracked position for TOC insertion (only set if this chunk contained the TOC marker) */
+  hasTocMarker: boolean;
 }
 
 export interface ExecuteOptions {
-  /** googleapis docs client (v1) with authenticated OAuth2 client */
   docsClient: any;
   documentId: string;
   chunk: DocumentChunk;
-  isFirstChunk: boolean;
-  isLastChunk: boolean;
-  tocPosition?: number;
 }
 
 // ── Document helpers using googleapis client ──
@@ -94,7 +96,6 @@ async function populateTableCells(
   if (table.rows.length > 0) {
     const headerRow = table.rows[0];
     const boldRequests: any[] = [];
-
     for (const cell of headerRow.tableCells) {
       const cs = cell.startIndex + 1;
       const ce = cell.endIndex - 1;
@@ -108,7 +109,6 @@ async function populateTableCells(
         });
       }
     }
-
     if (boldRequests.length > 0) {
       await batchUpdate(docsClient, documentId, boldRequests);
     }
@@ -117,44 +117,54 @@ async function populateTableCells(
 
 // ── Main Executor ──
 
+/**
+ * Execute a single chunk against the Google Docs API.
+ *
+ * For each segment:
+ *   - heading: insert clean text (no `#` prefix) → styles applied later
+ *   - text: insert as paragraph
+ *   - table: insert table structure + populate cells
+ *   - toc: DO NOT insert placeholder text, only track it happened
+ *   - pagebreak: insert page break
+ */
 export async function executeChunk(options: ExecuteOptions): Promise<ChunkResult> {
   const { docsClient, documentId, chunk } = options;
-  let tocPosition: number | undefined = options.tocPosition;
+  let hasTocMarker = false;
 
   try {
-    // Phase 1: Insert all text content
+    // Phase 1: Insert all text content (headings as clean text, no `#` prefix)
     const textRequests: any[] = [];
     let hasTable = false;
 
-    for (let i = 0; i < chunk.segments.length; i++) {
-      const seg = chunk.segments[i];
-
-      if (seg.type === "text" || (seg.type === "heading" && seg.level <= 4)) {
+    for (const seg of chunk.segments) {
+      if (seg.type === "heading" && seg.level >= 1 && seg.level <= 4) {
         const doc = await getDoc(docsClient, documentId);
         const insertPos = getBodyEnd(doc) - 1;
 
-        const prefix = seg.type === "heading" ? `${"#".repeat(seg.level)} ` : "";
-        const text = prefix ? `${prefix}${seg.content}\n` : `${seg.content}\n`;
+        // RULE 2: Insert CLEAN heading text (NO `## ` markdown prefix)
+        textRequests.push({
+          insertText: {
+            location: { index: insertPos },
+            text: seg.content + "\n",
+          },
+        });
+      } else if (seg.type === "text") {
+        const doc = await getDoc(docsClient, documentId);
+        const insertPos = getBodyEnd(doc) - 1;
 
         textRequests.push({
           insertText: {
             location: { index: insertPos },
-            text,
+            text: seg.content + "\n",
           },
         });
       } else if (seg.type === "table") {
         hasTable = true;
       } else if (seg.type === "toc") {
-        const doc = await getDoc(docsClient, documentId);
-        const insertPos = getBodyEnd(doc) - 1;
-        tocPosition = insertPos;
-
-        textRequests.push({
-          insertText: {
-            location: { index: insertPos },
-            text: "[DAFTAR ISI]\n",
-          },
-        });
+        // RULE 1 + RULE 5: Do NOT insert placeholder text for TOC.
+        // Just track that we encountered the marker.
+        // The actual TOC will be inserted after all content + styles are applied.
+        hasTocMarker = true;
       } else if (seg.type === "pagebreak") {
         const doc = await getDoc(docsClient, documentId);
         const insertPos = getBodyEnd(doc) - 1;
@@ -200,14 +210,14 @@ export async function executeChunk(options: ExecuteOptions): Promise<ChunkResult
     return {
       chunkId: chunk.id,
       success: true,
-      tocPosition,
+      hasTocMarker,
     };
   } catch (err: any) {
     return {
       chunkId: chunk.id,
       success: false,
       error: err.message,
-      tocPosition,
+      hasTocMarker,
     };
   }
 }

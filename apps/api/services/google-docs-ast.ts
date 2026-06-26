@@ -4,6 +4,11 @@
  * Parses a markdown report into logical document sections (chunks).
  * Each chunk represents an independently renderable document section.
  *
+ * RULE 7: Strips markdown list artifacts:
+ *   - `- `, `* `, `+ ` (unordered list markers)
+ *   - `1. `, `2. `, `a. `, `b. ` (ordered list markers)
+ *   - Indentation-based hierarchy
+ *
  * Chunk boundaries are detected from markdown heading levels:
  *   - Cover
  *   - Kata Pengantar
@@ -56,7 +61,43 @@ const SECTION_HEADINGS: { pattern: RegExp; label: string }[] = [
   { pattern: /^Lampiran\s/i, label: "Lampiran" },
 ];
 
-const COVER_PATTERN = /LAPORAN KEMAJUAN PEKERJAAN/i;
+// ── List stripping ──
+
+/**
+ * RULE 7: Strip markdown list artifacts from a line.
+ * Removes:
+ *   - `- `, `* `, `+ ` (unordered list markers)
+ *   - `1. `, `2. `, `a. `, `b. ` (ordered list markers)
+ *   - leading whitespace indentation
+ */
+function stripListMarker(line: string): string {
+  const trimmed = line.trim();
+
+  // Strip "* " prefix (bold/italic in markdown lists)
+  if (trimmed.startsWith("* ")) return trimmed.substring(2).trim();
+  if (trimmed.startsWith("- ")) return trimmed.substring(2).trim();
+  if (trimmed.startsWith("+ ")) return trimmed.substring(2).trim();
+
+  // Strip ordered list markers like "1. ", "2. ", "a. ", "b. "
+  const orderedRe = /^\d+\.\s+/;
+  if (orderedRe.test(trimmed)) {
+    return trimmed.replace(orderedRe, "").trim();
+  }
+
+  // Strip letter list markers like "a. ", "b. "
+  const letterRe = /^[a-zA-Z]\.\s+/;
+  if (letterRe.test(trimmed)) {
+    return trimmed.replace(letterRe, "").trim();
+  }
+
+  // Strip "(a)", "(b)" etc
+  const parenRe = /^\([a-zA-Z0-9]\)\s+/;
+  if (parenRe.test(trimmed)) {
+    return trimmed.replace(parenRe, "").trim();
+  }
+
+  return line;
+}
 
 // ── Helpers ──
 
@@ -101,6 +142,7 @@ function chunkId(label: string, index: number): string {
 
 /**
  * Parse markdown content into segments (flat array).
+ * Strips markdown list artifacts from text segments (RULE 7).
  */
 function parseSegments(markdown: string): Segment[] {
   const lines = markdown.split("\n");
@@ -136,6 +178,8 @@ function parseSegments(markdown: string): Segment[] {
       const level = hMatch[1].length;
       const text = hMatch[2].replace(/\*\*/g, "").trim();
       if (text) {
+        // Do NOT strip list markers from headings — they are intentional
+        // (e.g., "I. PENGEMBANGAN SISTEM", "a. Subtopic")
         segments.push({ type: "heading", content: text, level });
       }
       i++;
@@ -180,7 +224,13 @@ function parseSegments(markdown: string): Segment[] {
       if (t === "---") break;
 
       if (textContent) textContent += "\n";
-      textContent += stripMarkdownInline(line);
+
+      // RULE 7: Strip markdown list artifacts from text content
+      const strippedLine = stripListMarker(line);
+
+      // Also strip inline formatting for text
+      textContent += stripMarkdownInline(strippedLine);
+
       i++;
     }
 
@@ -221,16 +271,9 @@ function buildChunks(segments: Segment[]): DocumentChunk[] {
     if (segment.type === "heading") {
       const detectedLabel = detectSectionLabel(segment.content);
       if (detectedLabel) {
-        // Flush previous chunk
         flushChunk();
         currentLabel = detectedLabel;
       }
-    }
-
-    // If this is a pagebreak and it's at a natural boundary, start a new chunk
-    if (segment.type === "pagebreak" && currentChunks.length > 0) {
-      // Only flush if the pagebreak is between sections, not within
-      // We keep pagebreak in the current chunk
     }
 
     currentChunks.push(segment);

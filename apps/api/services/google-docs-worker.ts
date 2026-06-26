@@ -3,7 +3,11 @@
  *
  * Rate-limited orchestrator for Google Docs export jobs.
  * All API calls go through the googleapis library (handles OAuth2 refresh).
- * Processes one chunk at a time with strict rate limiting.
+ *
+ * Post-processing pipeline:
+ *   1. Match heading text → apply HEADING_1/2/3 styles
+ *   2. Find "DAFTAR ISI" → insert native TOC after it
+ *   3. No manual TOC text, no markdown artifacts
  */
 
 import { type DocumentAST, parseDocument, printChunks } from "./google-docs-ast";
@@ -23,7 +27,6 @@ export interface ExportProgress {
 export type ProgressCallback = (progress: ExportProgress) => void;
 
 export interface WorkerOptions {
-  /** googleapis docs client with authenticated OAuth2 client */
   docsClient: any;
   documentId: string;
   markdownContent: string;
@@ -45,77 +48,120 @@ export interface WorkerResult {
 
 const RATE_LIMIT_DELAY_MS = 800;
 
-// ── Helpers ──
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
- * Apply heading styles and insert native TOC.
- * Uses the googleapis docs client for all API calls.
+ * Extract the full text content from a paragraph element.
+ */
+function extractParagraphText(para: any): string | null {
+  if (!para?.elements) return null;
+  let text = "";
+  for (const el of para.elements) {
+    if (el.textRun?.content) text += el.textRun.content;
+  }
+  return text.trim() || null;
+}
+
+/**
+ * Map markdown heading level to Google Docs named style.
+ *
+ * RULE 2: Proper heading hierarchy
+ *   - Title / Section (##) → HEADING_1
+ *   - Topic (###) → HEADING_2
+ *   - Subtopic (####) → HEADING_3
+ */
+function getGdocsLevel(mdLevel: number): string {
+  if (mdLevel <= 2) return "HEADING_1";
+  if (mdLevel === 3) return "HEADING_2";
+  if (mdLevel === 4) return "HEADING_3";
+  return "HEADING_1";
+}
+
+// ── Post-processing pipeline ──
+
+/**
+ * Apply heading styles to the document.
+ *
+ * Reads the document once, finds all paragraphs that match heading text
+ * from the AST, and applies native Google Docs heading styles (HEADING_1/2/3).
+ *
+ * This runs AFTER all content is inserted, so the text is clean
+ * (no markdown `#` prefix — that was stripped by the executor).
  */
 async function applyHeadingStyles(
   docsClient: any,
   documentId: string,
   ast: DocumentAST,
-  tocPosition?: number,
 ): Promise<void> {
-  // Read document to find heading paragraphs
+  // Read the complete document
   const docRes = await docsClient.documents.get({ documentId });
   const doc: any = docRes.data;
 
-  // Collect heading targets from AST
+  // Build heading targets from AST (in order they appear)
   const headingTargets: { text: string; gdocsLevel: string }[] = [];
 
   for (const chunk of ast.chunks) {
     for (const seg of chunk.segments) {
       if (seg.type === "heading" && seg.level >= 1 && seg.level <= 4) {
-        const gdocsLevel = getGdocsLevel(seg.level);
-        headingTargets.push({ text: seg.content, gdocsLevel });
+        const cleanContent = seg.content.replace(/\*\*/g, "").trim();
+        if (cleanContent) {
+          headingTargets.push({
+            text: cleanContent,
+            gdocsLevel: getGdocsLevel(seg.level),
+          });
+        }
       }
     }
   }
 
-  // Scan document paragraphs and match heading text
+  if (headingTargets.length === 0) return;
+
+  // Walk the document body sequentially, matching paragraphs to heading targets
+  // Use a pointer into headingTargets to handle sequential matching
+  let targetIdx = 0;
   const styleRequests: any[] = [];
 
   function walkElements(elements: any[]): void {
     for (const el of elements) {
+      if (targetIdx >= headingTargets.length) return;
+
       if (el.paragraph) {
         const paraText = extractParagraphText(el.paragraph);
-        if (paraText) {
-          for (const target of headingTargets) {
-            const cleanTarget = target.text.replace(/\*\*/g, "").trim();
-            if (paraText.trim() === cleanTarget) {
-              const si = el.startIndex;
-              const ei = el.endIndex;
-              if (si && ei) {
-                styleRequests.push({
-                  updateParagraphStyle: {
-                    range: { startIndex: si, endIndex: ei },
-                    paragraphStyle: {
-                      namedStyleType: target.gdocsLevel,
-                      spaceAbove: { magnitude: 12, unit: "PT" },
-                      spaceBelow: { magnitude: 6, unit: "PT" },
-                    },
-                    fields: "namedStyleType,spaceAbove,spaceBelow",
-                  },
-                });
+        if (paraText && el.startIndex && el.endIndex) {
+          const target = headingTargets[targetIdx];
+          const cleanPara = paraText.replace(/\*\*/g, "").trim();
 
-                styleRequests.push({
-                  updateTextStyle: {
-                    range: { startIndex: si, endIndex: ei },
-                    textStyle: { bold: true },
-                    fields: "bold",
-                  },
-                });
-              }
-            }
+          if (cleanPara === target.text) {
+            // Apply heading style
+            styleRequests.push({
+              updateParagraphStyle: {
+                range: { startIndex: el.startIndex, endIndex: el.endIndex },
+                paragraphStyle: {
+                  namedStyleType: target.gdocsLevel,
+                  spaceAbove: { magnitude: 12, unit: "PT" },
+                  spaceBelow: { magnitude: 6, unit: "PT" },
+                },
+                fields: "namedStyleType,spaceAbove,spaceBelow",
+              },
+            });
+
+            // Bold the heading text
+            styleRequests.push({
+              updateTextStyle: {
+                range: { startIndex: el.startIndex, endIndex: el.endIndex },
+                textStyle: { bold: true },
+                fields: "bold",
+              },
+            });
+
+            targetIdx++;
           }
         }
       }
 
+      // Recurse into tables
       if (el.table) {
         for (const row of el.table.tableRows) {
           for (const cell of row.tableCells) {
@@ -143,88 +189,89 @@ async function applyHeadingStyles(
       await sleep(RATE_LIMIT_DELAY_MS);
     }
   }
+}
 
-  // Insert native TOC at tracked position
-  if (tocPosition && tocPosition > 0) {
-    // Find and remove placeholder [DAFTAR ISI]
-    let freshDoc: any;
-    try {
-      const readRes = await docsClient.documents.get({ documentId });
-      freshDoc = readRes.data;
-    } catch {
-      return; // Can't read document, skip TOC
-    }
+/**
+ * Insert native Table of Contents after the "DAFTAR ISI" heading.
+ *
+ * RULES 1 + 5:
+ *   - ONLY insert native Google Docs Table of Contents object
+ *   - No text, no bullet list, no manual TOC
+ *   - Based on heading styles
+ */
+async function insertNativeToc(
+  docsClient: any,
+  documentId: string,
+): Promise<void> {
+  // Read the document to find the "DAFTAR ISI" paragraph
+  let doc: any;
+  try {
+    const res = await docsClient.documents.get({ documentId });
+    doc = res.data;
+  } catch {
+    return;
+  }
 
-    let placeholderStart = -1;
+  // Find "DAFTAR ISI" paragraph end index
+  let daftarIsiEnd = -1;
 
-    function findPlaceholder(elements: any[]): void {
-      for (const el of elements) {
-        if (el.paragraph) {
-          const text = extractParagraphText(el.paragraph);
-          if (text?.includes("[DAFTAR ISI]")) {
-            placeholderStart = el.startIndex;
-            return;
-          }
+  function findDaftarIsi(elements: any[]): boolean {
+    for (const el of elements) {
+      if (el.paragraph) {
+        const text = extractParagraphText(el.paragraph);
+        if (text?.trim() === "DAFTAR ISI") {
+          daftarIsiEnd = el.endIndex;
+          return true;
         }
-        if (el.table) {
-          for (const row of el.table.tableRows) {
-            for (const cell of row.tableCells) {
-              if (cell.content) findPlaceholder(cell.content);
-            }
+      }
+      if (el.table) {
+        for (const row of el.table.tableRows) {
+          for (const cell of row.tableCells) {
+            if (cell.content && findDaftarIsi(cell.content)) return true;
           }
         }
       }
     }
-
-    findPlaceholder(freshDoc.body?.content || []);
-
-    const tocRequests: any[] = [];
-
-    if (placeholderStart > 0) {
-      tocRequests.push({
-        insertTableOfContents: {
-          location: { index: placeholderStart },
-        },
-      });
-    } else if (tocPosition > 0) {
-      tocRequests.push({
-        insertTableOfContents: {
-          location: { index: tocPosition },
-        },
-      });
-    }
-
-    if (tocRequests.length > 0) {
-      try {
-        await docsClient.documents.batchUpdate({
-          documentId,
-          requestBody: { requests: tocRequests },
-        });
-      } catch (tocErr: any) {
-        console.warn("⚠️ Native TOC insertion failed:", tocErr.message);
-      }
-    }
+    return false;
   }
-}
 
-function extractParagraphText(para: any): string | null {
-  if (!para?.elements) return null;
-  let text = "";
-  for (const el of para.elements) {
-    if (el.textRun?.content) text += el.textRun.content;
+  findDaftarIsi(doc.body?.content || []);
+
+  if (daftarIsiEnd <= 0) {
+    console.warn("⚠️ Could not find DAFTAR ISI heading in document, skipping TOC");
+    return;
   }
-  return text.trim() || null;
-}
 
-function getGdocsLevel(mdLevel: number): string {
-  if (mdLevel <= 2) return "HEADING_1"; // # and ## → HEADING_1 for TOC
-  if (mdLevel === 3) return "HEADING_2";
-  if (mdLevel === 4) return "HEADING_3";
-  return "HEADING_1";
+  // Insert native TOC right after the DAFTAR ISI paragraph
+  try {
+    await docsClient.documents.batchUpdate({
+      documentId,
+      requestBody: {
+        requests: [
+          {
+            insertTableOfContents: {
+              location: { index: daftarIsiEnd },
+            },
+          },
+        ],
+      },
+    });
+    console.log("  ✅ Native TOC inserted after DAFTAR ISI");
+  } catch (tocErr: any) {
+    console.warn("⚠️ Native TOC insertion failed:", tocErr.message);
+  }
 }
 
 // ── Main Export Worker ──
 
+/**
+ * Run the full export pipeline:
+ *   1. Parse markdown into AST (no markdown prefixes in Google Docs)
+ *   2. Process chunks with rate limiting (insert clean text)
+ *   3. Apply heading styles (HEADING_1/2/3)
+ *   4. Insert native TOC after DAFTAR ISI heading
+ *   5. Return document URL
+ */
 export async function runExportWorker(options: WorkerOptions): Promise<WorkerResult> {
   const { docsClient, markdownContent, documentTitle, onProgress, resumeFromChunk } = options;
   const { documentId } = options;
@@ -242,7 +289,6 @@ export async function runExportWorker(options: WorkerOptions): Promise<WorkerRes
   const startChunk = resumeFromChunk || 0;
   let completedChunks = startChunk;
   const failedChunks: string[] = [];
-  let currentTocPosition: number | undefined;
 
   for (let i = startChunk; i < totalChunks; i++) {
     const chunk = ast.chunks[i];
@@ -263,12 +309,7 @@ export async function runExportWorker(options: WorkerOptions): Promise<WorkerRes
       docsClient,
       documentId,
       chunk,
-      isFirstChunk: i === 0,
-      isLastChunk: i === totalChunks - 1,
-      tocPosition: currentTocPosition,
     });
-
-    if (result.tocPosition) currentTocPosition = result.tocPosition;
 
     if (!result.success) {
       failedChunks.push(chunk.id);
@@ -281,20 +322,36 @@ export async function runExportWorker(options: WorkerOptions): Promise<WorkerRes
     await sleep(RATE_LIMIT_DELAY_MS);
   }
 
-  // Step 3: Apply heading styles and insert TOC
+  // Step 3: Apply heading styles
   onProgress?.({
     chunkId: "styles",
     chunkLabel: "Formatting",
     currentChunk: totalChunks,
     totalChunks,
-    progress: 95,
+    progress: 90,
     message: "Menerapkan format heading...",
   });
 
   try {
-    await applyHeadingStyles(docsClient, documentId, ast, currentTocPosition);
+    await applyHeadingStyles(docsClient, documentId, ast);
   } catch (styleErr: any) {
     console.warn("⚠️ Heading style application error:", styleErr.message);
+  }
+
+  // Step 4: Insert native TOC
+  onProgress?.({
+    chunkId: "toc",
+    chunkLabel: "TOC",
+    currentChunk: totalChunks,
+    totalChunks,
+    progress: 95,
+    message: "Menyisipkan daftar isi...",
+  });
+
+  try {
+    await insertNativeToc(docsClient, documentId);
+  } catch (tocErr: any) {
+    console.warn("⚠️ TOC insertion error:", tocErr.message);
   }
 
   onProgress?.({
