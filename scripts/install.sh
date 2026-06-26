@@ -50,7 +50,7 @@ spinner() {
   printf "\r${GREEN} ✓ ${NC}%s\n" "$msg"
 }
 
-LOG="$INSTALL_DIR/install.log"
+LOG="/tmp/laporan-install.log"
 
 run_with_spinner() {
   local msg=$1
@@ -148,6 +148,12 @@ else
   run_with_spinner "Cloning repository..." git clone --depth=1 -b "$BRANCH" "$REPO_URL" "$INSTALL_DIR"
 fi
 
+if [[ ! -d "$INSTALL_DIR" ]]; then
+  err "Clone failed — $INSTALL_DIR was not created."
+  err "Check /tmp/laporan-install.log for details"
+  exit 1
+fi
+
 cd "$INSTALL_DIR"
 
 # ═══════════════════════════════════════════════════════════════
@@ -214,7 +220,7 @@ fi
 
 info "Creating admin account..."
 
-node_modules/.bin/tsx apps/api/src/index.ts > "$INSTALL_DIR/.server.log" 2>&1 &
+node_modules/.bin/tsx apps/api/src/index.ts > "/tmp/laporan-server.log" 2>&1 &
 SERVER_PID=$!
 
 # Wait for server to be ready (up to 30s)
@@ -231,7 +237,7 @@ while [ "$_wait" -lt 30 ]; do
 done
 
 if ! kill -0 "$SERVER_PID" 2>/dev/null; then
-  err "Server failed to start. Check logs: cat $INSTALL_DIR/.server.log"
+  err "Server failed to start. Check logs: cat /tmp/laporan-server.log"
   exit 1
 fi
 
