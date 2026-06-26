@@ -6,8 +6,18 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { requireAuth, slugify } from "../lib/auth";
+import { rateLimit } from "../lib/rate-limiter";
 
 const router = new Hono();
+
+// Rate limit: 10 login attempts per minute per IP
+const loginRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  key: (c: any) =>
+    c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || "unknown",
+  message: "Too many login attempts. Try again later.",
+});
 
 const registerPayload = z.object({
   name: z.string().min(1).max(100),

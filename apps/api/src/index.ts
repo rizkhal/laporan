@@ -32,10 +32,32 @@ runMigration();
 
 const app = new Hono();
 
+// ── Security headers middleware ──
+app.use("*", async (c, next) => {
+  await next();
+  c.res.headers.set("X-Content-Type-Options", "nosniff");
+  c.res.headers.set("X-Frame-Options", "DENY");
+  c.res.headers.set("X-XSS-Protection", "1; mode=block");
+  c.res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  if (process.env.NODE_ENV === "production") {
+    c.res.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
+});
+
+// ── CORS — restrict to known origins ──
+const ALLOWED_ORIGINS = [
+  process.env.FRONTEND_URL,
+  "http://localhost:5173",
+  "http://localhost:4173",
+].filter(Boolean) as string[];
+
 app.use(
   "/api/*",
   cors({
-    origin: (origin) => origin,
+    origin: (origin) => {
+      if (!origin || ALLOWED_ORIGINS.includes(origin)) return origin;
+      return ALLOWED_ORIGINS[0] || null;
+    },
     credentials: true,
   }),
 );

@@ -1,6 +1,6 @@
 # Monthly Dev Report
 
-An internal web application for generating monthly software development reports from multiple Git repositories. Collects commits, analyzes them via LLM, and produces formatted reports in multiple styles (Simple, Executive, Office) with optional Google Docs export.
+An internal web application for generating monthly software development reports from multiple Git repositories. Collects commits, analyzes them via LLM, and produces formatted reports in multiple styles (Simple, Executive, Office).
 
 ## Tech Stack
 
@@ -8,7 +8,6 @@ An internal web application for generating monthly software development reports 
 - **Frontend:** React 18, Vite, Tailwind CSS v4, shadcn/ui components
 - **Database:** SQLite via better-sqlite3
 - **Analysis:** OpenAI-compatible LLM API
-- **Export:** Google Docs API (optional)
 
 ## Project Structure
 
@@ -21,11 +20,12 @@ report/
 │   │   ├── tsconfig.json
 │   │   ├── drizzle.config.ts
 │   │   ├── vitest.config.ts
-│   │   ├── index.ts              # Server entry point
-│   │   ├── db/                   # Drizzle schema & DB connection
-│   │   ├── routes/               # API route handlers
-│   │   ├── services/             # Git collector, LLM analyzer, report formatter
-│   │   ├── lib/                  # Auth helpers
+│   │   ├── src/                  # Source code (routes, services, db, lib)
+│   │   │   ├── index.ts          # Server entry point
+│   │   │   ├── db/               # Drizzle schema & DB connection
+│   │   │   ├── routes/           # API route handlers
+│   │   │   ├── services/         # Git collector, LLM analyzer, report formatter
+│   │   │   └── lib/              # Auth helpers, rate limiter
 │   │   └── tests/                # Vitest test suite
 │   └── web/                      # React + Vite frontend
 │       ├── package.json
@@ -81,12 +81,10 @@ npm run dev -w apps/api
 ### Environment Variables
 
 ```env
-# Google OAuth (optional — for Google Docs export)
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
-GOOGLE_REDIRECT_URI=http://localhost:3000/api/integrations/google/callback
+# Server port
+PORT=3000
 
-# Frontend URL (for OAuth redirect)
+# Frontend URL (for CORS)
 FRONTEND_URL=http://localhost:5173
 ```
 
@@ -123,21 +121,13 @@ Three report styles available:
 
 Reports are generated as Markdown with a live split-editor (edit raw Markdown / preview rendered).
 
-### Google Docs Export (Optional)
-- Connect a Google account via OAuth 2.0
-- Export any generated report to Google Docs
-- Exported document uses proper heading styles (H1/H2/H3)
-- Background job queue for export — progress tracking
-- Document naming: `Laporan Kemajuan Pekerjaan - <Period> - <Workspace Name>`
-- OAuth tokens stored per workspace
-
 ### Activity Center
 - Real-time background job status via the activity dropdown
-- View queue position and progress for collect, analyze, generate, and export jobs
+- View queue position and progress for collect, analyze, and generate jobs
 
 ## Database
 
-SQLite database stored at `apps/api/db/dev.db`. Schema managed via Drizzle ORM with 15 tables:
+SQLite database stored at `apps/api/db/dev.db`. Schema managed via Drizzle ORM with 14 tables:
 
 | Table | Purpose |
 |-------|---------|
@@ -154,20 +144,19 @@ SQLite database stored at `apps/api/db/dev.db`. Schema managed via Drizzle ORM w
 | `analyses` | LLM analysis results per repo per collection |
 | `reports` | Generated report Markdown content |
 | `report_templates` | Custom Markdown report templates |
-| `google_integrations` | Google OAuth tokens per workspace |
-| `jobs` | Background job queue (collect, analyze, generate, export) |
+| `jobs` | Background job queue (collect, analyze, generate) |
 
 ## Scripts
 
 | Command | Description |
 |---------|-------------|
 | `npm run dev` | Start both API and web dev servers |
-| `npm run build` | Build frontend for production |
+| `npm run build -w apps/web` | Build frontend for production |
 | `npm run db:push` | Push Drizzle schema to SQLite |
 | `npm run db:generate` | Generate Drizzle migrations |
 | `npm run db:migrate` | Run workspace migration script |
 | `npm run db:studio` | Open Drizzle Studio |
-| `npm run test` | Run API test suite (Vitest) |
+| `npm run test -w apps/api` | Run API test suite (Vitest) |
 
 ## Workflow
 
@@ -179,16 +168,161 @@ SQLite database stored at `apps/api/db/dev.db`. Schema managed via Drizzle ORM w
 6. **Analyze** → Sends commits to LLM for structured analysis (per repo)
 7. **Generate Report** → Choose a style and produce a formatted Markdown report
 8. **Edit & Save** → Edit the Markdown directly in the split editor
-9. **Export** → Download as `.md` or export to Google Docs (with native TOC)
 
 ## Testing
 
 ```bash
 # Run all API tests
-npm run test
+npm run test -w apps/api
 ```
 
-Tests use an isolated temporary SQLite database (no data loss). 17 tests covering collection CRUD, repo uniqueness validation, and error handling.
+Tests use an isolated temporary SQLite database (no data loss). Tests cover collection CRUD, repo uniqueness validation, and error handling.
+
+## Deployment (aaPanel / Linux VPS)
+
+### Prerequisites (Server)
+- Node.js 18+ (LTS recommended)
+- PM2 (`npm install -g pm2`)
+- Git
+- aaPanel with Nginx (or any reverse proxy)
+
+### Server Setup
+
+```bash
+# 1. Clone the repository
+cd /www/wwwroot
+git clone <your-repo-url> laporan.rizkal.space
+cd laporan.rizkal.space
+
+# 2. Install dependencies (clean install on Linux)
+rm -rf node_modules package-lock.json
+npm install
+
+# 3. Configure environment
+cp apps/api/.env.example apps/api/.env
+# Edit apps/api/.env with your settings:
+#   - PORT=3000 (internal, no need to change)
+#   - FRONTEND_URL=https://laporan.rizkal.space
+
+# 4. Build frontend
+npm run build -w apps/web
+
+# 5. Push database schema
+npm run db:push -w apps/api
+
+# 6. Start with PM2
+pm2 start ecosystem.config.cjs
+pm2 save
+pm2 startup
+```
+
+### Nginx Reverse Proxy (aaPanel)
+
+Create a new website in aaPanel, then configure the reverse proxy:
+
+```nginx
+server {
+    listen 80;
+    server_name laporan.rizkal.space;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name laporan.rizkal.space;
+
+    ssl_certificate /www/server/panel/vhost/cert/laporan.rizkal.pace/fullchain.pem;
+    ssl_certificate_key /www/server/panel/vhost/cert/laporan.rizkal.space/privkey.pem;
+
+    # Frontend (Vite preview or static files)
+    location / {
+        proxy_pass http://127.0.0.1:4173;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # API backend
+    location /api/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # WebSocket support (if needed)
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        # Timeouts
+        proxy_connect_timeout 60s;
+        proxy_read_timeout 120s;
+    }
+
+    # Increase body size for report data
+    client_max_body_size 10M;
+}
+```
+
+**Alternative:** Serve frontend static files directly via Nginx (no `vite preview` needed):
+
+```nginx
+# Build the frontend first:
+#   npm run build -w apps/web
+# This creates apps/web/dist/
+
+location / {
+    root /www/wwwroot/laporan.rizkal.space/apps/web/dist;
+    index index.html;
+    try_files $uri $uri/ /index.html;
+}
+```
+
+### PM2 Configuration
+
+The project includes `ecosystem.config.cjs` at the root. Ensure it's configured:
+
+```javascript
+module.exports = {
+  apps: [{
+    name: "laporan-api",
+    cwd: "/www/wwwroot/laporan.rizkal.space",
+    script: "apps/api/src/index.ts",
+    interpreter: "node_modules/.bin/tsx",
+    env: {
+      NODE_ENV: "production",
+    },
+  }],
+};
+```
+
+### Important Notes for Linux Deployment
+
+1. **Platform binaries:** If you deployed from macOS, reinstall dependencies on the Linux server:
+   ```bash
+   rm -rf node_modules package-lock.json
+   npm install
+   ```
+
+2. **esbuild/lightningcss binaries:** These platform-specific packages must be installed on the target OS. The `.npmrc` with `optional=true` ensures they install correctly.
+
+3. **Database path:** The API resolves the DB path dynamically. Ensure `apps/api/db/` directory exists:
+   ```bash
+   mkdir -p apps/api/db
+   ```
+
+4. **PM2 restart:** Never use `kill -9` on port 3000 — it may interfere with other processes. Use:
+   ```bash
+   pm2 restart laporan-api
+   ```
+
+5. **Logs:**
+   ```bash
+   pm2 logs laporan-api
+   pm2 monit
+   ```
 
 ## Important Notes
 
@@ -199,4 +333,3 @@ Tests use an isolated temporary SQLite database (no data loss). 17 tests coverin
 - Background jobs are processed sequentially — one at a time, FIFO order
 - Stuck jobs from a server restart are automatically marked as failed
 - The app runs entirely locally — no external data storage
-- Google Docs export requires OAuth configuration (see Environment Variables above)
