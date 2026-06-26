@@ -66,7 +66,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const res = await fetch(apiUrl("/auth/me"), {
           headers: { Authorization: `Bearer ${stored}` },
         });
-        if (!res.ok) throw new Error("Invalid token");
+
+        // Only invalidate token on 401 (actual auth failure),
+        // NOT on 429 (rate limited) or 5xx (server error)
+        if (res.status === 401) {
+          localStorage.removeItem("auth_token");
+          localStorage.removeItem("active_workspace");
+          setToken(null);
+          setActiveWorkspace(null);
+          setLoading(false);
+          return;
+        }
+
+        if (!res.ok) {
+          // 429 or 5xx — don't invalidate session, just mark as loaded
+          setLoading(false);
+          return;
+        }
+
         const data = await res.json();
         setUser(data.user);
         if (data.workspaces?.length > 0) {
@@ -81,10 +98,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         }
       } catch {
-        localStorage.removeItem("auth_token");
-        localStorage.removeItem("active_workspace");
-        setToken(null);
-        setActiveWorkspace(null);
+        // Network error — don't invalidate session, just mark as loaded
+        // so UI doesn't flash to login on temporary blips
       } finally {
         setLoading(false);
       }

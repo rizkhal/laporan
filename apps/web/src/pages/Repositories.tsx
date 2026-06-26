@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -6,7 +6,7 @@ import { Textarea } from "../components/ui/textarea";
 import { Label } from "../components/ui/label";
 import { Badge } from "../components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
-import { apiFetch } from "../lib/utils";
+import { apiFetch, apiUrl } from "../lib/utils";
 import { useToast } from "../components/toast";
 import { Plus, Pencil, Trash2, GitBranch, Link, Loader2, Check, X, RefreshCw, AlertTriangle } from "lucide-react";
 
@@ -48,26 +48,27 @@ export default function Repositories() {
   const [retryingId, setRetryingId] = useState<number | null>(null);
   const [testResults, setTestResults] = useState<Record<number, { success: boolean; message: string }>>({});
 
-  // Auto-refresh polling for status updates
-  const reposRef = useRef(repos);
-  reposRef.current = repos;
-
   const { addToast } = useToast();
 
+  // ── Initial fetch on mount + SSE for real-time status updates ──
   useEffect(() => {
     loadRepos();
 
-    // Poll for status updates every 5s while there are pending/cloning repos
-    const pollTimer = setInterval(() => {
-      const hasActive = reposRef.current.some((r) =>
-        r.cloneStatus === "pending_clone" || r.cloneStatus === "cloning" || r.cloneStatus === "syncing"
-      );
-      if (hasActive) {
-        loadRepos();
-      }
-    }, 5000);
+    // SSE replaces the 5s polling interval — only receives repos events when
+    // clone status actually changes, so it never hits the rate limiter.
+    const token = localStorage.getItem("auth_token");
+    if (!token) return;
 
-    return () => clearInterval(pollTimer);
+    const es = new EventSource(apiUrl(`/events?token=${token}`));
+
+    es.addEventListener("repos", (e: MessageEvent) => {
+      try {
+        const data: Repo[] = JSON.parse(e.data);
+        setRepos(data);
+      } catch {}
+    });
+
+    return () => es.close();
   }, []);
 
   async function loadRepos() {

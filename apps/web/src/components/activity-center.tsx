@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { apiFetch } from "../lib/utils";
+import { apiFetch, apiUrl } from "../lib/utils";
 import { cn } from "../lib/utils";
 import { useToast } from "./toast";
 import {
@@ -49,14 +49,13 @@ export function ActivityCenter() {
   const [activeJobs, setActiveJobs] = useState<Job[]>([]);
   const [recentJobs, setRecentJobs] = useState<Job[]>([]);
   const [open, setOpen] = useState(false);
-  const [initialLoad, setInitialLoad] = useState(true);
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const { addToast } = useToast();
   const lastCompletedRef = useRef<Set<number>>(new Set());
   const [acting, setActing] = useState<Set<number>>(new Set());
 
+  // ── Initial fetch on mount ──
   const fetchJobs = useCallback(async () => {
     try {
       const [active, recent] = await Promise.all([
@@ -66,7 +65,33 @@ export function ActivityCenter() {
       setActiveJobs(active);
       setRecentJobs(recent.slice(0, 10));
 
-      if (!initialLoad) {
+      // Seed lastCompletedRef without showing toasts on initial load
+      for (const job of recent) {
+        if (job.status === "completed" || job.status === "failed") {
+          lastCompletedRef.current.add(job.id);
+        }
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    fetchJobs();
+  }, [fetchJobs]);
+
+  // ── SSE connection replaces 3s polling ──
+  useEffect(() => {
+    const token = localStorage.getItem("auth_token");
+    if (!token) return;
+
+    const es = new EventSource(apiUrl(`/events?token=${token}`));
+
+    es.addEventListener("jobs", (e: MessageEvent) => {
+      try {
+        const { active, recent } = JSON.parse(e.data);
+        setActiveJobs(active);
+        setRecentJobs(recent.slice(0, 10));
+
+        // Show toasts for newly completed/failed jobs only
         for (const job of recent) {
           if (!lastCompletedRef.current.has(job.id) && (job.status === "completed" || job.status === "failed")) {
             lastCompletedRef.current.add(job.id);
@@ -79,31 +104,11 @@ export function ActivityCenter() {
             });
           }
         }
-      }
+      } catch {}
+    });
 
-      setInitialLoad(false);
-    } catch {}
-  }, [initialLoad, addToast]);
-
-  useEffect(() => {
-    fetchJobs();
-    pollingRef.current = setInterval(fetchJobs, 3000);
-    return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
-    };
-  }, [fetchJobs]);
-
-  useEffect(() => {
-    for (const job of recentJobs) {
-      if (job.status === "completed" || job.status === "failed") {
-        lastCompletedRef.current.add(job.id);
-      }
-    }
-    if (lastCompletedRef.current.size > 100) {
-      const arr = Array.from(lastCompletedRef.current);
-      lastCompletedRef.current = new Set(arr.slice(-50));
-    }
-  }, [recentJobs]);
+    return () => es.close();
+  }, [addToast]);
 
   async function cancelJob(jobId: number) {
     setActing((prev) => new Set(prev).add(jobId));

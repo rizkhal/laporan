@@ -37,7 +37,10 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || err.message || "Request failed");
+    // Throw a structured error with the HTTP status so callers can handle 429 specially
+    const httpErr = new Error(err.error || err.message || "Request failed") as any;
+    httpErr.status = res.status;
+    throw httpErr;
   }
   return res.json();
 }

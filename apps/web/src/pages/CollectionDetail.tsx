@@ -8,10 +8,11 @@ import { apiFetch, apiUrl, getActiveWorkspaceId } from "../lib/utils";
 import {
   ArrowLeft, ArrowRight, Bot, Check, ChevronDown, ChevronRight, Clipboard,
   Columns2, FileCode2, FileText, GitBranch, GitCommit,
-  Loader2, Monitor, Pencil, Save, Settings2, Sparkles,
+  Globe, Loader2, Lock, Monitor, Pencil, Save, Settings2, Share2, Sparkles,
 } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../components/ui/dialog";
 import { Label } from "../components/ui/label";
+import { Input } from "../components/ui/Input";
 
 interface Collection { id: number; year: number; month: number; title: string; status: string; repoIds: number[] | null; }
 interface Commit {
@@ -57,6 +58,12 @@ export default function CollectionDetail() {
   const [error, setError] = useState<string | null>(null);
   const [repoEditOpen, setRepoEditOpen] = useState(false);
   const [editRepoIds, setEditRepoIds] = useState<number[] | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareInfo, setShareInfo] = useState<{ slug: string; visibility: string; url: string } | null>(null);
+  const [shareVisibility, setShareVisibility] = useState<"public" | "protected">("public");
+  const [sharePassword, setSharePassword] = useState("");
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
   const { addToast } = useToast();
 
   async function loadAll() {
@@ -165,6 +172,59 @@ export default function CollectionDetail() {
       setBusy(null);
     }
   }
+
+  // ── Share link ──
+  async function loadShareInfo() {
+    if (!report) return;
+    try {
+      const data = await apiFetch<{ slug: string; visibility: string; url: string } | null>(`/reports/${collectionId}/share`);
+      setShareInfo(data);
+      if (data) {
+        setShareVisibility(data.visibility as "public" | "protected");
+      }
+    } catch {}
+  }
+
+  async function handleShare() {
+    if (!report) return;
+    try {
+      setShareBusy(true);
+      const data = await apiFetch<{ slug: string; visibility: string; url: string }>(`/reports/${collectionId}/share`, {
+        method: "POST",
+        body: JSON.stringify({
+          visibility: shareVisibility,
+          password: shareVisibility === "protected" ? sharePassword : undefined,
+        }),
+      });
+      setShareInfo(data);
+      addToast({ type: "success", title: "Share link created" });
+    } catch (err: any) {
+      addToast({ type: "error", title: "Failed to create share link", description: err.message });
+    } finally {
+      setShareBusy(false);
+    }
+  }
+
+  async function handleDeleteShare() {
+    try {
+      setShareBusy(true);
+      await apiFetch(`/reports/${collectionId}/share`, { method: "DELETE" });
+      setShareInfo(null);
+      setSharePassword("");
+      addToast({ type: "success", title: "Share link deleted" });
+    } catch (err: any) {
+      addToast({ type: "error", title: "Failed to delete share link", description: err.message });
+    } finally {
+      setShareBusy(false);
+    }
+  }
+
+  // Load share info when report becomes available
+  useEffect(() => {
+    if (report) loadShareInfo();
+  }, [report?.id]);
+
+  const shareUrl = shareInfo ? `${window.location.origin}/share/${shareInfo.slug}` : "";
 
 
 
@@ -415,6 +475,7 @@ export default function CollectionDetail() {
                       a.remove(); URL.revokeObjectURL(url);
                     } catch (e) { addToast({ type: 'error', title: 'Download failed', description: String(e) }); }
                   }}><FileCode2 className="size-3.5" /> Markdown</Button>
+                  <Button size="sm" variant="outline" onClick={() => setShareOpen(true)}><Share2 className="size-3.5" /> Share</Button>
                   <Button size="sm" onClick={saveReport} disabled={busy === "save" || reportDraft === report.content}>{busy === "save" ? <Loader2 className="animate-spin" /> : <Save />} Save</Button>
                 </div>
               </div>
@@ -462,6 +523,61 @@ export default function CollectionDetail() {
                 {busy === "save" && <Loader2 className="animate-spin" />} Save
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Share dialog */}
+      <Dialog open={shareOpen} onOpenChange={setShareOpen}>
+        <DialogContent className="max-w-md rounded-2xl">
+          <DialogHeader><DialogTitle>Share report</DialogTitle>
+            <DialogDescription className="text-xs">Create a public link to share this report with others.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {shareInfo ? (
+              <>
+                <div className="rounded-xl border border-border bg-card p-3">
+                  <p className="text-xs font-medium text-muted-foreground">Share URL</p>
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <code className="flex-1 truncate rounded-lg bg-muted px-2 py-1 font-mono text-xs">{shareUrl}</code>
+                    <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(shareUrl); setShareCopied(true); setTimeout(() => setShareCopied(false), 2000); }}>
+                      {shareCopied ? <Check className="size-3.5" /> : <Clipboard className="size-3.5" />}
+                    </Button>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 rounded-xl border border-border bg-card p-3">
+                  {shareInfo.visibility === "protected" ? <Lock className="size-4 text-muted-foreground" /> : <Globe className="size-4 text-muted-foreground" />}
+                  <span className="text-sm text-muted-foreground">{shareInfo.visibility === "protected" ? "Password protected" : "Public"}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <Button variant="destructive" size="sm" onClick={handleDeleteShare} disabled={shareBusy}>Delete link</Button>
+                  <Button size="sm" onClick={() => { setShareOpen(false); }}>Close</Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex gap-3">
+                  <button type="button" onClick={() => setShareVisibility("public")} className={`flex flex-1 items-center justify-center gap-2 rounded-xl border p-3 text-sm ${shareVisibility === "public" ? "border-primary/40 bg-primary/5 font-medium" : "hover:bg-muted"}`}>
+                    <Globe className="size-4" /> Public
+                  </button>
+                  <button type="button" onClick={() => setShareVisibility("protected")} className={`flex flex-1 items-center justify-center gap-2 rounded-xl border p-3 text-sm ${shareVisibility === "protected" ? "border-primary/40 bg-primary/5 font-medium" : "hover:bg-muted"}`}>
+                    <Lock className="size-4" /> Protected
+                  </button>
+                </div>
+                {shareVisibility === "protected" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="share-password">Password</Label>
+                    <Input id="share-password" type="password" placeholder="Enter a password" value={sharePassword} onChange={(e) => setSharePassword(e.target.value)} />
+                  </div>
+                )}
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setShareOpen(false)}>Cancel</Button>
+                  <Button onClick={handleShare} disabled={shareBusy || (shareVisibility === "protected" && !sharePassword)}>
+                    {shareBusy ? <Loader2 className="animate-spin" /> : <Share2 className="size-4" />} Generate link
+                  </Button>
+                </div>
+              </>
+            )}
           </div>
         </DialogContent>
       </Dialog>
@@ -709,10 +825,11 @@ function renderMarkdown(content: string) {
 }
 
 function inlineMarkdown(text: string) {
-  // Match **bold**, `code`, and _italic_
-  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|_[^_]+_)/g);
+  // Match **bold**, *italic*, `code`, and _italic_
+  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|_[^_]+_)/g);
   return parts.map((part, index) => {
     if (part.startsWith("**") && part.endsWith("**")) return <strong key={index}>{part.slice(2, -2)}</strong>;
+    if (part.startsWith("*") && part.endsWith("*") && !part.startsWith("**")) return <em key={index}>{part.slice(1, -1)}</em>;
     if (part.startsWith("`") && part.endsWith("`")) return <code key={index} className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">{part.slice(1, -1)}</code>;
     if (part.startsWith("_") && part.endsWith("_")) return <em key={index}>{part.slice(1, -1)}</em>;
     return part;

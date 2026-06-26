@@ -205,6 +205,15 @@ export function runMigration(): void {
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
+      CREATE TABLE IF NOT EXISTS shared_reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        report_id INTEGER NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+        slug TEXT NOT NULL UNIQUE,
+        visibility TEXT NOT NULL DEFAULT 'public',
+        password_hash TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
       CREATE UNIQUE INDEX IF NOT EXISTS idx_collections_unique ON collections(workspace_id, year, month, unique_key);
       CREATE UNIQUE INDEX IF NOT EXISTS idx_collection_repos_unique ON collection_repos(workspace_id, repo_id, year, month);
     `);

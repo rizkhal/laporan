@@ -11,6 +11,7 @@ import Repositories from "./pages/Repositories";
 import Collections from "./pages/Collections";
 import CollectionDetail from "./pages/CollectionDetail";
 import SettingsPage from "./pages/Settings";
+import SharePreview from "./pages/SharePreview";
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
         <Route path="/" element={<Landing />} />
         <Route path="/docs" element={<Docs />} />
         <Route path="/login" element={<Login />} />
+        <Route path="/share/:slug" element={<SharePreview />} />
 
 
         {/* Protected routes */}

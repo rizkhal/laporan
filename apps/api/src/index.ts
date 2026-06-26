@@ -10,8 +10,7 @@ dotenv.config({ path: path.join(__dirname, "../.env") });
 const [{ Hono }, { cors }, { HTTPException }, { serve }, { reposRouter },
   { collectionsRouter }, { settingsRouter }, { reportsRouter },
   { analysesRouter }, { collectionDetailRouter }, { authRouter },
-  { workspacesRouter }, { jobsRouter }, { runMigration },
-  { rateLimit }] = await Promise.all([
+  { workspacesRouter }, { jobsRouter }, { shareRouter }, { eventsRouter }, { runMigration }] = await Promise.all([
   import("hono"),
   import("hono/cors"),
   import("hono/http-exception"),
@@ -25,8 +24,9 @@ const [{ Hono }, { cors }, { HTTPException }, { serve }, { reposRouter },
   import("./routes/auth"),
   import("./routes/workspaces"),
   import("./routes/jobs"),
-  import("./db/migrate-workspaces"),
-  import("./lib/rate-limiter"),
+    import("./routes/share"),
+    import("./routes/events"),
+    import("./db/migrate-workspaces"),
 ]);
 
 // Run migration on startup (idempotent - safe to run every time)
@@ -70,17 +70,10 @@ app.use(
   }),
 );
 
-// ── Global rate limiter: 100 requests per minute per IP ──
-// Must come AFTER CORS so preflight OPTIONS always gets CORS headers.
-const globalRateLimit = rateLimit({
-  windowMs: 60 * 1000,
-  max: 100,
-  key: (req: any) =>
-    req.header("x-forwarded-for") || req.header("x-real-ip") || "unknown",
-  message: "Too many requests. Please slow down.",
-  skip: (req: any) => req.method === "OPTIONS",
-});
-app.use("/api/*", globalRateLimit);
+// ── No global rate limiter ──
+// SSE has replaced all polling, and the remaining API calls are user-initiated.
+// Targeted rate limits on auth routes (login, register) handle brute-force protection.
+// Removing global rate limit prevents 429 errors during normal page loads.
 
 // Global error handler for HTTPExceptions from our auth helpers
 app.onError((err, c) => {
@@ -100,6 +93,9 @@ app.route("/api/analyses", analysesRouter);
 app.route("/api/auth", authRouter);
 app.route("/api/workspaces", workspacesRouter);
 app.route("/api/jobs", jobsRouter);
+app.route("/api/reports", shareRouter);
+app.route("/api/share", shareRouter);
+app.route("/api", eventsRouter);
 
 app.get("/api/health", (c) => c.json({ status: "ok" }));
 

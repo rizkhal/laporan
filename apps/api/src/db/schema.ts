@@ -155,6 +155,17 @@ export const collectionRepos = sqliteTable("collection_repos", {
   month: integer("month").notNull(),
 });
 
+// ── Shared Reports (public share links) ──
+export const sharedReports = sqliteTable("shared_reports", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  reportId: integer("report_id").notNull().references(() => reports.id, { onDelete: "cascade" }),
+  slug: text("slug").notNull().unique(),
+  visibility: text("visibility").notNull().default("public"), // public | protected
+  passwordHash: text("password_hash"),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
+});
+
 // ── Generated Reports ──
 export const reports = sqliteTable("reports", {
   id: integer("id").primaryKey({ autoIncrement: true }),
