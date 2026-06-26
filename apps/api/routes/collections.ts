@@ -7,6 +7,21 @@ import { requireAuth, assertOwnership } from "../lib/auth";
 
 const router = new Hono();
 
+function enrichCollection(col: any) {
+  const enriched: any = {
+    ...col,
+    repoIds: col.repoIds ? JSON.parse(col.repoIds) : null,
+  };
+  // Fetch category info if categoryId is set
+  if (col.categoryId) {
+    const cat = db.select().from(schema.categories).where(eq(schema.categories.id, col.categoryId)).get();
+    if (cat) {
+      enriched.category = { id: cat.id, name: cat.name, color: cat.color };
+    }
+  }
+  return enriched;
+}
+
 // List all collections scoped to workspace
 router.get("/", (c) => {
   const ctx = requireAuth(c);
@@ -16,18 +31,14 @@ router.get("/", (c) => {
     .where(eq(schema.collections.workspaceId, ctx.workspace.id))
     .orderBy(desc(schema.collections.year), asc(schema.collections.month))
     .all();
-  const parsed = collections.map(col => ({
-    ...col,
-    repoIds: col.repoIds ? JSON.parse(col.repoIds) : null,
-  }));
-  return c.json(parsed);
+  return c.json(collections.map(enrichCollection));
 });
 
 // Create collection
 router.post("/", async (c) => {
   const ctx = requireAuth(c);
   const body = await c.req.json();
-  const parsed = z.object({ year: z.number(), month: z.number(), repoIds: z.array(z.number()).optional() }).parse(body);
+  const parsed = z.object({ year: z.number(), month: z.number(), repoIds: z.array(z.number()).optional(), categoryId: z.number().nullable().optional() }).parse(body);
 
   const title = `${new Date(parsed.year, parsed.month - 1).toLocaleString("default", { month: "long" })} ${parsed.year}`;
 
@@ -37,10 +48,10 @@ router.post("/", async (c) => {
     month: parsed.month,
     title,
     repoIds: parsed.repoIds ? JSON.stringify(parsed.repoIds) : null,
+    categoryId: parsed.categoryId ?? null,
   }).returning().get();
 
-  const resp = { ...result, repoIds: result.repoIds ? JSON.parse(result.repoIds) : null };
-  return c.json(resp, 201);
+  return c.json(enrichCollection(result), 201);
 });
 
 // Get single collection
@@ -49,8 +60,7 @@ router.get("/:id", (c) => {
   const id = parseInt(c.req.param("id"));
   const collection = db.select().from(schema.collections).where(eq(schema.collections.id, id)).get();
   assertOwnership(collection, ctx.workspace.id, "Collection");
-  const resp = { ...collection, repoIds: collection.repoIds ? JSON.parse(collection.repoIds) : null };
-  return c.json(resp);
+  return c.json(enrichCollection(collection));
 });
 
 // Update collection (e.g., repo selection)
@@ -61,18 +71,20 @@ router.put("/:id", async (c) => {
   assertOwnership(collection, ctx.workspace.id, "Collection");
 
   const body = await c.req.json();
-  const parsed = z.object({ repoIds: z.array(z.number()).nullable().optional() }).parse(body);
+  const parsed = z.object({ repoIds: z.array(z.number()).nullable().optional(), categoryId: z.number().nullable().optional() }).parse(body);
 
   const updateData: any = { updatedAt: new Date().toISOString() };
   if (parsed.repoIds !== undefined) {
     updateData.repoIds = parsed.repoIds === null ? null : JSON.stringify(parsed.repoIds);
   }
+  if (parsed.categoryId !== undefined) {
+    updateData.categoryId = parsed.categoryId;
+  }
 
   const result = db.update(schema.collections).set(updateData).where(eq(schema.collections.id, id)).returning().get();
   if (!result) return c.json({ error: "Not found" }, 404);
 
-  const resp = { ...result, repoIds: result.repoIds ? JSON.parse(result.repoIds) : null };
-  return c.json(resp);
+  return c.json(enrichCollection(result));
 });
 
 // Delete collection

@@ -15,6 +15,7 @@ interface Repo {
   name: string;
   localPath: string;
   remoteUrl: string;
+  category: string;
   enabled: boolean;
   authorNames: string;
   authorEmails: string;

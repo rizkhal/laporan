@@ -70,6 +70,16 @@ export const repositories = sqliteTable("repositories", {
   updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
 });
 
+// ── Categories ──
+export const categories = sqliteTable("categories", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: integer("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  color: text("color").notNull().default("#6366f1"),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
+});
+
 // ── Collections ──
 export const collections = sqliteTable("collections", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -79,6 +89,7 @@ export const collections = sqliteTable("collections", {
   title: text("title").notNull(),
   status: text("status").notNull().default("draft"), // draft, collecting, completed, analyzing, analyzed, generating, generated
   repoIds: text("repo_ids"), // JSON array of repo IDs, null = all repos
+  categoryId: integer("category_id").references(() => categories.id, { onDelete: "set null" }),
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
   updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
 });
