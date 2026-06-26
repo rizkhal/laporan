@@ -112,8 +112,6 @@ function getDefaultTemplate(): string {
 
 ## DAFTAR ISI
 
-<!-- GOOGLE_DOCS_TOC -->
-
 {{daftarIsi}}
 
 ---

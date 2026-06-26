@@ -163,20 +163,7 @@ export const reports = sqliteTable("reports", {
   style: text("style").notNull().default("office"),
   content: text("content").notNull(), // Markdown
   isEdited: integer("is_edited", { mode: "boolean" }).notNull().default(false),
-  googleDocId: text("google_doc_id"),
-  googleDocUrl: text("google_doc_url"),
-  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
-  updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
-});
 
-// ── Google Integrations (per workspace) ──
-export const googleIntegrations = sqliteTable("google_integrations", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  workspaceId: integer("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }).unique(),
-  googleAccountEmail: text("google_account_email").notNull(),
-  accessToken: text("access_token"), // TODO: Encrypt this token
-  refreshToken: text("refresh_token"), // TODO: Encrypt this token
-  expiresAt: text("expires_at"),
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
   updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
 });

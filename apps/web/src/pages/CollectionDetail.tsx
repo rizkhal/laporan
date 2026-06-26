@@ -22,7 +22,7 @@ interface Analysis {
   id: number; repoId: number; status: string; workItems: string; category: string;
   summary: string; impact: string; risks: string; nextSuggestions: string; isEdited: boolean; error: string;
 }
-interface Report { id: number; title: string; content: string; style?: string; isEdited: boolean; updatedAt?: string; googleDocUrl?: string; }
+interface Report { id: number; title: string; content: string; style?: string; isEdited: boolean; updatedAt?: string; }
 interface Repo { id: number; name: string; }
 interface LlmProvider { id: number; name: string; model: string; }
 
@@ -599,11 +599,7 @@ function renderMarkdown(content: string) {
 
     // Check for special markers first
     const trimmed = line.trim();
-    if (trimmed === "<!-- GOOGLE_DOCS_TOC -->") {
-      flushTable();
-      // Skip silently — TOC is only for Google Docs export
-      continue;
-    }
+
     if (trimmed === "<!-- PAGE_BREAK -->") {
       flushTable();
       elements.push(<div key={index} className="my-4 flex items-center gap-2 text-xs text-muted-foreground/50"><hr className="flex-1 border-dashed border-muted-foreground/20" /><span className="italic">Page break</span><hr className="flex-1 border-dashed border-muted-foreground/20" /></div>);

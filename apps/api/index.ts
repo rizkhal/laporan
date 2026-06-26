@@ -10,8 +10,7 @@ dotenv.config({ path: path.join(__dirname, ".env") });
 const [{ Hono }, { cors }, { HTTPException }, { serve }, { reposRouter },
   { collectionsRouter }, { settingsRouter }, { reportsRouter },
   { analysesRouter }, { collectionDetailRouter }, { authRouter },
-  { workspacesRouter }, { jobsRouter }, { runMigration },
-  { integrationsRouter }] = await Promise.all([
+  { workspacesRouter }, { jobsRouter }, { runMigration }] = await Promise.all([
   import("hono"),
   import("hono/cors"),
   import("hono/http-exception"),
@@ -24,9 +23,8 @@ const [{ Hono }, { cors }, { HTTPException }, { serve }, { reposRouter },
   import("./routes/collection-detail"),
   import("./routes/auth"),
   import("./routes/workspaces"),
-  import("./routes/jobs"),
-  import("./db/migrate-workspaces"),
-  import("./routes/integrations"),
+	  import("./routes/jobs"),
+	  import("./db/migrate-workspaces"),
 ]);
 
 // Run migration on startup (idempotent - safe to run every time)
@@ -60,7 +58,6 @@ app.route("/api/analyses", analysesRouter);
 app.route("/api/auth", authRouter);
 app.route("/api/workspaces", workspacesRouter);
 app.route("/api/jobs", jobsRouter);
-app.route("/api/integrations", integrationsRouter);
 
 app.get("/api/health", (c) => c.json({ status: "ok" }));
 
