@@ -179,6 +179,11 @@ PORT=$BACKEND_PORT
 FRONTEND_URL=http://localhost:$FRONTEND_PORT
 NODE_ENV=development
 EOF
+
+  # Write root .env so Vite picks up the custom frontend port
+  cat > "$INSTALL_DIR/.env" << EOF
+VITE_PORT=$FRONTEND_PORT
+EOF
   ok "Environment configured"
 fi
 
