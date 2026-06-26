@@ -11,7 +11,7 @@ import { ArrowRight, Calendar, FileText, GitBranch, GitCommit, Info, Loader2, Pe
 interface Collection {
   id: number; year: number; month: number; title: string; status: string; createdAt: string; repoIds: number[] | string | null;
 }
-interface Repo { id: number; name: string; localPath: string; category: string; }
+interface Repo { id: number; name: string; localPath: string; }
 interface Stats { totalCommits?: number; totalFiles?: number; totalInsertions?: number; totalDeletions?: number; }
 interface RepoStats { repoId: number; repoName: string; commits: number; insertions: number; deletions: number; }
 
@@ -181,7 +181,6 @@ export default function Collections() {
                       <label key={repo.id} className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-muted">
                         <input type="checkbox" checked={checked} onChange={() => setSelectedRepoIds((current) => current === null ? [repo.id] : checked ? current.filter((id) => id !== repo.id) : [...current, repo.id])} className="size-4 rounded border-input bg-card" />
                         <span className="text-sm">{repo.name}</span>
-                        <span className="ml-auto text-xs text-muted-foreground">{repo.category}</span>
                       </label>
                     );
                   })}
@@ -291,7 +290,6 @@ export default function Collections() {
                   <label key={repo.id} className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-muted">
                     <input type="checkbox" checked={checked} onChange={() => setEditRepoIds((current) => current === null ? [repo.id] : checked ? current.filter((id) => id !== repo.id) : [...current, repo.id])} className="size-4 rounded border-input bg-card" />
                     <span className="text-sm">{repo.name}</span>
-                    <span className="ml-auto text-xs text-muted-foreground">{repo.category}</span>
                   </label>
                 );
               })}
