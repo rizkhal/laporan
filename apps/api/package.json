@@ -4,12 +4,14 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "build": "tsc",
     "test": "vitest run",
-        "test:watch": "vitest",
-        "dev": "tsx watch index.ts",
+    "test:watch": "vitest",
+    "dev": "tsx watch index.ts",
     "db:push": "drizzle-kit push",
-    "db:generate": "drizzle-kit generate",
-    "db:studio": "drizzle-kit studio"
+    "start": "node dist/index.js",
+    "db:studio": "drizzle-kit studio",
+    "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
     "@hono/node-server": "^2.0.6",
