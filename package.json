@@ -14,10 +14,6 @@
     "db:migrate": "npx tsx apps/api/db/migrate-workspaces.ts"
   },
   "devDependencies": {
-    "@types/bcryptjs": "^2.4.6",
     "concurrently": "^9.2.1"
-  },
-  "dependencies": {
-    "bcryptjs": "^3.0.3"
   }
 }
