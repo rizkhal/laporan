@@ -11,12 +11,9 @@ import { createJob, killJobProcesses } from "../services/job-runner";
 
 const router = new Hono();
 
-const VALID_CATEGORIES = ["general", "feature", "bugfix", "refactor", "performance", "dependency", "infrastructure", "documentation", "testing", "other"] as const;
-
 const repoPayload = z.object({
   name: z.string().min(1),
   remoteUrl: z.string().min(1),
-  category: z.enum(VALID_CATEGORIES).optional().default("general"),
   enabled: z.boolean().optional().default(true),
   authorNames: z.array(z.string()).optional().default([]),
   authorEmails: z.array(z.string()).optional().default([]),
@@ -99,7 +96,6 @@ router.put("/:id", async (c) => {
     createJob(ctx.workspace.id, "clone_repository", { repositoryId: id });
   }
   if (parsed.enabled !== undefined) updateData.enabled = parsed.enabled;
-  if (parsed.category !== undefined) updateData.category = parsed.category;
   if (parsed.authorNames !== undefined) updateData.authorNames = JSON.stringify(parsed.authorNames);
   if (parsed.authorEmails !== undefined) updateData.authorEmails = JSON.stringify(parsed.authorEmails);
 
@@ -223,19 +219,6 @@ router.post("/:id/retry-clone", (c) => {
   createJob(ctx.workspace.id, "clone_repository", { repositoryId: id });
 
   return c.json({ success: true, message: "Clone retry queued." });
-});
-
-// Get unique categories across workspace
-router.get("/categories", (c) => {
-  const ctx = requireAuth(c);
-  const repos = db
-    .select()
-    .from(schema.repositories)
-    .where(eq(schema.repositories.workspaceId, ctx.workspace.id))
-    .all();
-  const categories = [...new Set(repos.map(r => r.category || "general"))].sort();
-  const allValid = [...VALID_CATEGORIES];
-  return c.json({ used: categories, valid: allValid });
 });
 
 // Test repository connection using workspace SSH key (uses remoteUrl)
