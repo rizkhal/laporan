@@ -369,7 +369,7 @@ export default function CollectionDetail() {
                       const res = await fetch(apiUrl(`/reports/${report.id}/download/markdown`), {
                         headers: { 'Authorization': `Bearer ${token}`, ...(wsId ? { 'X-Workspace-Id': String(wsId) } : {}) },
                       });
-                      if (!res.ok) { addToast({ type: 'error', title: 'Download failed' }); return; }
+                      if (!res.ok) { const body = await res.text().catch(()=>''); addToast({ type: 'error', title: 'Download failed', description: body || res.statusText }); return; }
                       const blob = await res.blob();
                       const url = URL.createObjectURL(blob);
                       const a = document.createElement('a');
@@ -386,7 +386,7 @@ export default function CollectionDetail() {
                       const res = await fetch(apiUrl(`/reports/${report.id}/download/docx`), {
                         headers: { 'Authorization': `Bearer ${token}`, ...(wsId ? { 'X-Workspace-Id': String(wsId) } : {}) },
                       });
-                      if (!res.ok) { addToast({ type: 'error', title: 'Download failed' }); return; }
+                      if (!res.ok) { const body = await res.text().catch(()=>''); addToast({ type: 'error', title: 'Download failed', description: body || res.statusText }); return; }
                       const blob = await res.blob();
                       const url = URL.createObjectURL(blob);
                       const a = document.createElement('a');
