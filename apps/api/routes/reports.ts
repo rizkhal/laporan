@@ -7,6 +7,7 @@ import { requireAuth, assertOwnership } from "../lib/auth";
 import { getAllStrategies, getStrategy } from "../services/report-strategies";
 import { exportToGoogleDocs } from "../services/google-docs-exporter";
 import { createJob } from "../services/job-runner";
+import { convertMarkdownToDocx } from "../services/pandoc";
 
 const router = new Hono();
 
@@ -312,6 +313,38 @@ router.get("/:id/download/markdown", async (c) => {
   c.header("Content-Type", "text/markdown; charset=utf-8");
   c.header("Content-Disposition", `attachment; filename="laporan-kemajuan-pekerjaan-${collection?.title || "report"}.md"`);
   return c.body(report.content);
+});
+
+// Download report as DOCX (via Pandoc)
+router.get("/:id/download/docx", async (c) => {
+  const ctx = requireAuth(c);
+  const id = parseInt(c.req.param("id"));
+
+  const report = db
+    .select()
+    .from(schema.reports)
+    .where(eq(schema.reports.id, id))
+    .get();
+  if (!report) return c.json({ error: "Report not found" }, 404);
+
+  const collection = db
+    .select()
+    .from(schema.collections)
+    .where(eq(schema.collections.id, report.collectionId))
+    .get();
+  assertOwnership(collection, ctx.workspace.id, "Report");
+
+  try {
+    const filename = `laporan-kemajuan-pekerjaan-${collection?.title || "report"}`;
+    const docxBuffer = convertMarkdownToDocx(report.content, filename);
+
+    c.header("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    c.header("Content-Disposition", `attachment; filename="${filename}.docx"`);
+    return c.body(docxBuffer);
+  } catch (err: any) {
+    console.error("DOCX conversion error:", err.message);
+    return c.json({ error: `DOCX conversion failed: ${err.message}` }, 500);
+  }
 });
 
 export { router as reportsRouter };

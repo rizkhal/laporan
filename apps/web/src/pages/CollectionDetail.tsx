@@ -4,10 +4,10 @@ import { useNavigate, useParams } from "react-router-dom";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/Button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
-import { apiFetch } from "../lib/utils";
+import { apiFetch, apiUrl } from "../lib/utils";
 import {
   ArrowLeft, ArrowRight, Bot, Check, ChevronDown, ChevronRight, Clipboard,
-  Columns2, FileCode2, FileText, GitBranch, GitCommit,
+  Columns2, FileCode2, FileDown, FileText, GitBranch, GitCommit,
   Loader2, Monitor, Pencil, Save, Settings2, Sparkles,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
@@ -361,6 +361,22 @@ export default function CollectionDetail() {
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" onClick={() => setReportMode((mode) => mode === "split" ? "preview" : "split")}>{reportMode === "split" ? <Monitor className="size-3.5" /> : <Columns2 className="size-3.5" />} {reportMode === "split" ? "Preview only" : "Split view"}</Button>
                   <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(reportDraft); setCopied(true); setTimeout(() => setCopied(false), 2000); }}>{copied ? <Check className="size-3.5 text-success-foreground" /> : <Clipboard />} {copied ? "Copied!" : "Copy"}</Button>
+                  <Button size="sm" variant="outline" onClick={() => { window.open(apiUrl(`/reports/${report?.id}/download/markdown`), '_blank'); }}><FileCode2 className="size-3.5" /> Markdown</Button>
+                  <Button size="sm" variant="outline" onClick={async () => {
+                    if (!report) return;
+                    const { apiUrl } = await import('../lib/utils');
+                    const token = localStorage.getItem('auth_token');
+                    const res = await fetch(apiUrl(`/reports/${report.id}/download/docx`), {
+                      headers: { 'Authorization': `Bearer ${token}`, 'X-Workspace-Id': String((await import('../lib/utils')).getActiveWorkspaceId()) },
+                    });
+                    if (!res.ok) { addToast({ type: 'error', title: 'Download failed' }); return; }
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url; a.download = `laporan-kemajuan-pekerjaan-${collection?.title || 'report'}.docx`;
+                    document.body.appendChild(a); a.click();
+                    a.remove(); URL.revokeObjectURL(url);
+                  }}><FileDown className="size-3.5" /> DOCX</Button>
 
                   <Button size="sm" onClick={saveReport} disabled={busy === "save" || reportDraft === report.content}>{busy === "save" ? <Loader2 className="animate-spin" /> : <Save />} Save</Button>
                 </div>
