@@ -60,6 +60,7 @@ export function runMigration(): void {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         token TEXT NOT NULL UNIQUE,
+        expires_at TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
       CREATE TABLE IF NOT EXISTS workspaces (
@@ -208,6 +209,21 @@ export function runMigration(): void {
       CREATE UNIQUE INDEX IF NOT EXISTS idx_collection_repos_unique ON collection_repos(workspace_id, repo_id, year, month);
     `);
     console.log("  → All core tables verified");
+
+    // 1a. Add expires_at column to sessions if missing (security: session expiry)
+    const sessionsCols = sqlite.prepare("PRAGMA table_info(sessions)").all() as any[];
+    const hasExpiresAt = sessionsCols.some((c: any) => c.name === "expires_at");
+    if (!hasExpiresAt) {
+      sqlite.exec("ALTER TABLE sessions ADD COLUMN expires_at TEXT");
+      // Clear all existing sessions — they use plaintext tokens that will be
+      // invalidated by the SHA-256 hashing change. Users will need to re-login.
+      sqlite.exec("DELETE FROM sessions");
+      console.log("  → Added expires_at to sessions (cleared existing sessions for security)");
+    } else {
+      // Clean up expired sessions on startup
+      sqlite.prepare("DELETE FROM sessions WHERE expires_at IS NOT NULL AND expires_at < datetime('now')").run();
+      console.log("  → Cleaned up expired sessions");
+    }
 
     // 1. Upgrade workspaces table (add slug/description columns if needed)
     const hasSlug = (sqlite.prepare("PRAGMA table_info(workspaces)").all() as any[]).some((c: any) => c.name === "slug");

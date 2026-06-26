@@ -1,6 +1,8 @@
 import { db } from "../db/index";
 import * as schema from "../db/schema";
 import { eq, and } from "drizzle-orm";
+import { decrypt } from "../lib/crypto";
+import { isSafeLLMUrl } from "../lib/url-validator";
 
 interface LLMConfig {
   baseUrl: string;
@@ -25,7 +27,7 @@ function getLLMConfig(workspaceId: number, providerId?: number): LLMConfig {
   }
   return {
     baseUrl: provider.baseUrl,
-    apiKey: provider.apiKey,
+    apiKey: decrypt(provider.apiKey),
     model: provider.model,
   };
 }
@@ -144,11 +146,37 @@ RESPON DENGAN JSON VALID dengan struktur ini (field names dan values HARUS Bahas
 }
 
 /**
- * Safely extract a JSON object `{...}` from a string that may contain
- * surrounding text, markdown fences, or trailing content.
- * Uses a stack-based approach to find the outermost balanced braces.
+ * Attempt to parse a string as JSON using multiple strategies:
+ * 1. Direct JSON.parse
+ * 2. Strip invisible control characters and retry
+ * 3. Extract balanced braces and retry
+ * 4. Best-effort brace extraction even if unbalanced
  */
-function extractJSON(text: string): string {
+function parseAnyJSON(text: string): any {
+  // Strategy 1: Direct
+  try { return JSON.parse(text); } catch {}
+
+  // Strategy 2: Strip control characters (BOM, null bytes, etc.)
+  try {
+    const cleaned = text.replace(/[\x00-\x08\x0B-\x1F\x7F-\x9F\uFEFF\u200B-\u200F\u2028-\u202F\uFFF0-\uFFFF]/g, "");
+    return JSON.parse(cleaned);
+  } catch {}
+
+  // Strategy 3: Extract balanced braces and try
+  const extracted = extractBalancedJSON(text);
+  if (extracted && extracted !== text) {
+    try { return JSON.parse(extracted); } catch {}
+    try { return JSON.parse(extracted.replace(/[\x00-\x1F\x7F-\uFFFF]/g, "")); } catch {}
+  }
+
+  return null;
+}
+
+/**
+ * Find the first '{' and its matching '}' (balanced braces).
+ * Handles truncation: if unbalanced, returns the partial object.
+ */
+function extractBalancedJSON(text: string): string {
   // Try markdown-fenced JSON first
   const mdMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (mdMatch) {
@@ -156,11 +184,22 @@ function extractJSON(text: string): string {
     if (candidate.startsWith("{")) return candidate;
   }
 
-  // Find the first '{' and its matching '}' using a depth counter
+  // Find the first '{' and try to find its balanced '}'
   let depth = 0;
   let start = -1;
+  let inString = false;
+  let escape = false;
+
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
+
+    // Track string boundaries so we don't count braces inside strings
+    if (escape) { escape = false; continue; }
+    if (ch === "\\" && inString) { escape = true; continue; }
+    if (ch === '"' && !escape) { inString = !inString; continue; }
+
+    if (inString) continue;
+
     if (ch === "{") {
       if (depth === 0) start = i;
       depth++;
@@ -172,8 +211,14 @@ function extractJSON(text: string): string {
     }
   }
 
-  // Fallback: return everything (will likely fail to parse, but caller handles it)
-  return text;
+  // If braces are unbalanced (truncated JSON), return best-effort
+  if (start !== -1 && depth > 0) {
+    // Try to complete the JSON by adding closing braces
+    return text.slice(start) + "}".repeat(depth);
+  }
+
+  // Fallback: return cleaned text
+  return text.replace(/[\x00-\x1F]/g, "").trim();
 }
 
 /**
@@ -183,7 +228,44 @@ function extractJSON(text: string): string {
 function repairJSON(raw: string): string {
   // Remove trailing commas before closing brackets/braces
   let s = raw.replace(/,([\s\n]*[}\]])/g, "$1");
+  // Remove trailing commas before closing brackets/braces (also in arrays)
+  s = s.replace(/,([\s\n]*[}\]])/g, "$1");
+  // Replace JavaScript-style undefined/null with JSON null
+  s = s.replace(/\bundefined\b/g, "null");
+  // Single-quoted keys → double-quoted keys (simplistic: only handles simple cases)
+  s = s.replace(/'([^']+)'\s*:/g, '"$1":');
   return s;
+}
+
+/**
+ * Try to extract the assistant message content from an LLM API response
+ * using progressively more aggressive strategies.
+ */
+function extractContentFromRaw(rawText: string): string | null {
+  // Strategy 1: Parse as JSON, get content from standard path
+  const data = parseAnyJSON(rawText);
+  if (data) {
+    const content = data.choices?.[0]?.message?.content;
+    if (content && typeof content === "string") return content;
+  }
+
+  // Strategy 2: Try each line (in case it's NDJSON and the first parse got partial)
+  for (const line of rawText.trim().split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed === "data: [DONE]") continue;
+    const jsonCandidate = trimmed.replace(/^data: /, "");
+    if (!jsonCandidate.startsWith("{")) continue;
+    try {
+      const chunk = parseAnyJSON(jsonCandidate);
+      if (!chunk) continue;
+      const delta = chunk.choices?.[0]?.delta;
+      if (delta?.content) return delta.content;
+      const msgContent = chunk.choices?.[0]?.message?.content;
+      if (msgContent) return msgContent;
+    } catch {}
+  }
+
+  return null;
 }
 
 export async function analyzeCommits(
@@ -193,6 +275,13 @@ export async function analyzeCommits(
   llmProviderId?: number
 ): Promise<AnalysisOutput> {
   const config = getLLMConfig(workspaceId, llmProviderId);
+
+  // SSRF protection: validate baseUrl
+  const urlCheck = isSafeLLMUrl(config.baseUrl);
+  if (!urlCheck.valid) {
+    throw new Error(`LLM base URL is not allowed: ${urlCheck.error}`);
+  }
+
   const prompt = buildPrompt(commits, repoName);
 
   const response = await fetch(`${config.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
@@ -218,54 +307,61 @@ export async function analyzeCommits(
     throw new Error(`LLM API error (${response.status}): ${rawText.slice(0, 500)}`);
   }
 
-  // Parse SSE streaming response (9router always streams)
-  let content = "";
-  if (rawText.trim().startsWith("data: ") || rawText.includes("chat.completion.chunk")) {
-    for (const line of rawText.trim().split("\n")) {
-      if (line.startsWith("data: ") && !line.includes("[DONE]")) {
-        try {
-          const chunk = JSON.parse(line.replace(/^data: /, ""));
-          const delta = chunk.choices?.[0]?.delta;
-          if (delta?.content) {
-            content += delta.content;
-          }
-        } catch {}
-      }
-    }
-  } else {
-    // Regular JSON response
-    try {
-      const data = JSON.parse(rawText);
-      content = data.choices?.[0]?.message?.content || "";
-    } catch (e) {
-      throw new Error(`Failed to parse LLM response: ${rawText.slice(0, 200)}`);
-    }
+  // ── Step 1: Extract assistant message content from raw response ──
+  const extracted = extractContentFromRaw(rawText);
+  if (!extracted) {
+    console.error("LLM raw response (first 3000 chars):", rawText.slice(0, 3000));
+    throw new Error("Failed to parse LLM response: could not extract content");
   }
 
-  // Extract JSON from response (handle markdown-wrapped JSON)
-  let jsonStr = extractJSON(content);
-  if (!jsonStr) jsonStr = content;
+  // ── Step 2: Extract inner JSON from the assistant's message ──
+  let innerJson = extractBalancedJSON(extracted);
+  if (!innerJson || innerJson === extracted) innerJson = extracted;
 
-  // Try to repair common issues before parsing
-  jsonStr = repairJSON(jsonStr.trim());
+  // ── Step 3: Repair and attempt to parse the inner JSON ──
+  innerJson = repairJSON(innerJson.trim());
 
-  // Attempt parsing, with progressive fallbacks
+  let parsed: AnalysisOutput | null = null;
   let lastError = "";
-  for (const attempt of [jsonStr]) {
-    try {
-      const parsed = JSON.parse(attempt) as AnalysisOutput;
-      if (!parsed.workItems || !Array.isArray(parsed.workItems)) {
-        throw new Error("Invalid response structure: missing workItems array");
-      }
-      return parsed;
-    } catch (e) {
-      lastError = e instanceof Error ? e.message : "Unknown error";
-    }
+
+  // Try parsing the inner JSON with multiple strategies
+  parsed = parseAnyJSON(innerJson);
+
+  if (parsed && Array.isArray(parsed.workItems)) {
+    return parsed;
   }
 
-  // Log the first 2000 chars of content for debugging
-  console.error("Failed to parse LLM response. First 2000 chars:", content.slice(0, 2000));
-  console.error("Extracted JSON:", jsonStr.slice(0, 1500));
+  // If workItems is missing, the inner JSON might be nested differently
+  if (parsed && typeof parsed === "object") {
+    // Search for workItems at any depth
+    const findWorkItems = (obj: any): any[] | null => {
+      if (obj.workItems && Array.isArray(obj.workItems)) return obj.workItems;
+      for (const val of Object.values(obj)) {
+        if (typeof val === "object" && val !== null) {
+          const found = findWorkItems(val);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    const found = findWorkItems(parsed);
+    if (found) {
+      // Reconstruct AnalysisOutput from the parsed object
+      const ringkasan = typeof (parsed as any).ringkasan === "string" ? (parsed as any).ringkasan : "";
+      const dampak = typeof (parsed as any).dampak === "string" ? (parsed as any).dampak : "";
+      const risiko = typeof (parsed as any).risiko === "string" ? (parsed as any).risiko : "";
+      const rekomendasi = typeof (parsed as any).rekomendasi === "string" ? (parsed as any).rekomendasi : "";
+      return { workItems: found, ringkasan, dampak, risiko, rekomendasi };
+    }
+    lastError = "Missing workItems array";
+  } else {
+    lastError = lastError || "Invalid JSON structure";
+  }
+
+  // ── All strategies failed — log details for debugging ──
+  console.error("LLM response content (first 2000 chars):", extracted.slice(0, 2000));
+  console.error("Extracted inner JSON (first 1500 chars):", innerJson.slice(0, 1500));
+  console.error("Parse error:", lastError);
   throw new Error(`Failed to parse LLM analysis: ${lastError}`);
 }
 

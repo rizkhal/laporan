@@ -10,7 +10,8 @@ dotenv.config({ path: path.join(__dirname, "../.env") });
 const [{ Hono }, { cors }, { HTTPException }, { serve }, { reposRouter },
   { collectionsRouter }, { settingsRouter }, { reportsRouter },
   { analysesRouter }, { collectionDetailRouter }, { authRouter },
-  { workspacesRouter }, { jobsRouter }, { runMigration }] = await Promise.all([
+  { workspacesRouter }, { jobsRouter }, { runMigration },
+  { rateLimit }] = await Promise.all([
   import("hono"),
   import("hono/cors"),
   import("hono/http-exception"),
@@ -23,8 +24,9 @@ const [{ Hono }, { cors }, { HTTPException }, { serve }, { reposRouter },
   import("./routes/collection-detail"),
   import("./routes/auth"),
   import("./routes/workspaces"),
-	  import("./routes/jobs"),
-	  import("./db/migrate-workspaces"),
+  import("./routes/jobs"),
+  import("./db/migrate-workspaces"),
+  import("./lib/rate-limiter"),
 ]);
 
 // Run migration on startup (idempotent - safe to run every time)
@@ -44,23 +46,41 @@ app.use("*", async (c, next) => {
   }
 });
 
-// ── CORS — restrict to known origins ──
+// ── CORS — allow known origins + common dev ports ──
 const ALLOWED_ORIGINS = [
   process.env.FRONTEND_URL,
   "http://localhost:5173",
   "http://localhost:4173",
+  "http://localhost:4321",
+  "http://localhost:3000",
+  "http://localhost:1234",
 ].filter(Boolean) as string[];
 
 app.use(
   "/api/*",
   cors({
     origin: (origin) => {
-      if (!origin || ALLOWED_ORIGINS.includes(origin)) return origin;
-      return ALLOWED_ORIGINS[0] || null;
+      // Allow same-origin requests (no Origin header)
+      if (!origin) return "*";
+      // Check against known origins
+      if (ALLOWED_ORIGINS.includes(origin)) return origin;
+      return null;
     },
     credentials: true,
   }),
 );
+
+// ── Global rate limiter: 100 requests per minute per IP ──
+// Must come AFTER CORS so preflight OPTIONS always gets CORS headers.
+const globalRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 100,
+  key: (req: any) =>
+    req.header("x-forwarded-for") || req.header("x-real-ip") || "unknown",
+  message: "Too many requests. Please slow down.",
+  skip: (req: any) => req.method === "OPTIONS",
+});
+app.use("/api/*", globalRateLimit);
 
 // Global error handler for HTTPExceptions from our auth helpers
 app.onError((err, c) => {

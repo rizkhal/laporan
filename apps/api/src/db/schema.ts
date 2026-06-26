@@ -17,6 +17,7 @@ export const sessions = sqliteTable("sessions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   token: text("token").notNull().unique(),
+  expiresAt: text("expires_at"),
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
 });
 

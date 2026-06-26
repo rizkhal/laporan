@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -49,7 +49,8 @@ export default function Repositories() {
   const [testResults, setTestResults] = useState<Record<number, { success: boolean; message: string }>>({});
 
   // Auto-refresh polling for status updates
-  const [pollInterval, setPollInterval] = useState<ReturnType<typeof setInterval> | null>(null);
+  const reposRef = useRef(repos);
+  reposRef.current = repos;
 
   const { addToast } = useToast();
 
@@ -58,7 +59,7 @@ export default function Repositories() {
 
     // Poll for status updates every 5s while there are pending/cloning repos
     const pollTimer = setInterval(() => {
-      const hasActive = repos.some((r) =>
+      const hasActive = reposRef.current.some((r) =>
         r.cloneStatus === "pending_clone" || r.cloneStatus === "cloning" || r.cloneStatus === "syncing"
       );
       if (hasActive) {
@@ -67,7 +68,7 @@ export default function Repositories() {
     }, 5000);
 
     return () => clearInterval(pollTimer);
-  }, [repos]);
+  }, []);
 
   async function loadRepos() {
     try {

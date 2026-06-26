@@ -1,6 +1,6 @@
 import { spawn } from "child_process";
 import { existsSync } from "fs";
-import { getKeyFilePaths, buildGitSshCommandLenient } from "./ssh-key";
+import { getKeyFilePaths, buildGitSshCommandLenient, setupKnownHosts } from "./ssh-key";
 
 /**
  * Execute an SSH-based git command asynchronously using spawn.
@@ -89,10 +89,13 @@ export async function testGitHubConnection(workspaceId: number): Promise<{
     };
   }
 
+  // Ensure known_hosts is populated
+  setupKnownHosts(workspaceId);
+
   const result = await execSsh("ssh", [
     "-i", files.privateKeyPath,
-    "-o", "StrictHostKeyChecking=no",
-    "-o", "UserKnownHostsFile=/dev/null",
+    "-o", "StrictHostKeyChecking=accept-new",
+    "-o", `UserKnownHostsFile=${files.knownHostsPath}`,
     "-T", "git@github.com",
   ], { workspaceId, timeout: 15000 });
 

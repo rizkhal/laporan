@@ -33,12 +33,12 @@ router.put("/:id", async (c) => {
 
   const body = await c.req.json();
   const parsed = z.object({
-    workItems: z.string().optional(),
-    category: z.string().optional(),
-    summary: z.string().optional(),
-    impact: z.string().optional(),
-    risks: z.string().optional(),
-    nextSuggestions: z.string().optional(),
+    workItems: z.string().max(500000).optional(),
+    category: z.string().max(200).optional(),
+    summary: z.string().max(50000).optional(),
+    impact: z.string().max(50000).optional(),
+    risks: z.string().max(50000).optional(),
+    nextSuggestions: z.string().max(50000).optional(),
   }).parse(body);
 
   const updateData: any = { isEdited: true, updatedAt: new Date().toISOString() };

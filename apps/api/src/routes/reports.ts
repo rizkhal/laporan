@@ -60,7 +60,7 @@ router.post("/:collectionId/generate", async (c) => {
   assertOwnership(collection, ctx.workspace.id, "Collection");
 
   const body = await c.req.json().catch(() => ({}));
-  const style = body.style || "office";
+  const style = typeof body.style === "string" && body.style.length <= 50 ? body.style : "office";
 
   db.update(schema.collections)
     .set({ status: "generating" })
@@ -126,7 +126,8 @@ router.post("/:collectionId/generate", async (c) => {
       .set({ status: "analyzed" })
       .where(eq(schema.collections.id, collectionId))
       .run();
-    return c.json({ error: err.message }, 500);
+    console.error("Report generation error:", err);
+    return c.json({ error: "Failed to generate report" }, 500);
   }
 });
 
@@ -150,7 +151,7 @@ router.put("/:id", async (c) => {
   assertOwnership(collection, ctx.workspace.id, "Report");
 
   const body = await c.req.json();
-  const parsed = z.object({ content: z.string() }).parse(body);
+  const parsed = z.object({ content: z.string().min(1).max(500000) }).parse(body);
 
   db.update(schema.reports)
     .set({

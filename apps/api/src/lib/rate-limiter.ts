@@ -10,8 +10,14 @@ export function rateLimit(options: {
   max: number;
   key: (req: any) => string;
   message?: string;
+  skip?: (req: any) => boolean;
 }) {
   return async (c: any, next: any) => {
+    // Skip rate limiting (e.g. for OPTIONS preflight)
+    if (options.skip?.(c.req)) {
+      return next();
+    }
+
     const key = options.key(c.req);
     const now = Date.now();
     let store = stores.get(key);

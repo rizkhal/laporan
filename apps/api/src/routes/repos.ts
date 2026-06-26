@@ -5,18 +5,20 @@ import * as schema from "../db/schema";
 import { eq, and, or, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { requireAuth, assertOwnership } from "../lib/auth";
+import { HTTPException } from "hono/http-exception";
 import { testRepoConnection } from "../services/git-ssh";
 import { resolveRepoPath, cleanStaleClone } from "../services/git-clone";
 import { createJob, killJobProcesses } from "../services/job-runner";
+import { isValidGitUrl } from "../lib/url-validator";
 
 const router = new Hono();
 
 const repoPayload = z.object({
-  name: z.string().min(1),
-  remoteUrl: z.string().min(1),
+  name: z.string().min(1).max(200),
+  remoteUrl: z.string().min(1).max(500),
   enabled: z.boolean().optional().default(true),
-  authorNames: z.array(z.string()).optional().default([]),
-  authorEmails: z.array(z.string()).optional().default([]),
+  authorNames: z.array(z.string().max(200)).optional().default([]),
+  authorEmails: z.array(z.string().max(200)).optional().default([]),
 });
 
 // List all repos scoped to workspace
@@ -32,11 +34,18 @@ router.get("/", (c) => {
 
 // Create repo — saves immediately, clones asynchronously in background
 router.post("/", async (c) => {
-  const ctx = requireAuth(c);
-  const body = await c.req.json();
-  const parsed = repoPayload.parse(body);
+  try {
+    const ctx = requireAuth(c);
+    const body = await c.req.json();
+    const parsed = repoPayload.parse(body);
 
-  const localPath = resolveRepoPath(ctx.workspace.id, parsed.name);
+    // Validate git URL scheme
+    const urlCheck = isValidGitUrl(parsed.remoteUrl);
+    if (!urlCheck.valid) {
+      return c.json({ error: urlCheck.error }, 400);
+    }
+
+    const localPath = resolveRepoPath(ctx.workspace.id, parsed.name);
 
   // Clean up any stale/orphaned clone directory from a previous failed delete
   // This prevents orphaned .git directories from causing false "already cloned" results
@@ -60,18 +69,36 @@ router.post("/", async (c) => {
   });
 
   return c.json(result, 201);
+  } catch (err: any) {
+    if (err instanceof z.ZodError) {
+      return c.json({ error: err.errors[0].message }, 400);
+    }
+    if (err instanceof HTTPException) throw err;
+    console.error("Create repo error:", err);
+    return c.json({ error: "Failed to create repository" }, 500);
+  }
 });
 
 // Update repo — queues re-clone if remote URL or name changed
 router.put("/:id", async (c) => {
-  const ctx = requireAuth(c);
-  const id = parseInt(c.req.param("id"));
-  const repo = db.select().from(schema.repositories).where(eq(schema.repositories.id, id)).get();
-  assertOwnership(repo, ctx.workspace.id, "Repository");
+  try {
+    const ctx = requireAuth(c);
+    const id = parseInt(c.req.param("id"));
+    const repo = db.select().from(schema.repositories).where(eq(schema.repositories.id, id)).get();
+    assertOwnership(repo, ctx.workspace.id, "Repository");
 
-  const body = await c.req.json();
-  const parsed = repoPayload.partial().parse(body);
-  const updateData: any = { updatedAt: new Date().toISOString() };
+    const body = await c.req.json();
+    const parsed = repoPayload.partial().parse(body);
+
+    // Validate git URL scheme if provided
+    if (parsed.remoteUrl !== undefined) {
+      const urlCheck = isValidGitUrl(parsed.remoteUrl);
+      if (!urlCheck.valid) {
+        return c.json({ error: urlCheck.error }, 400);
+      }
+    }
+
+    const updateData: any = { updatedAt: new Date().toISOString() };
 
   if (parsed.name !== undefined) {
     updateData.name = parsed.name;
@@ -102,6 +129,14 @@ router.put("/:id", async (c) => {
   const result = db.update(schema.repositories).set(updateData).where(eq(schema.repositories.id, id)).returning().get();
   if (!result) return c.json({ error: "Not found" }, 404);
   return c.json(result);
+  } catch (err: any) {
+    if (err instanceof z.ZodError) {
+      return c.json({ error: err.errors[0].message }, 400);
+    }
+    if (err instanceof HTTPException) throw err;
+    console.error("Update repo error:", err);
+    return c.json({ error: "Failed to update repository" }, 500);
+  }
 });
 
 // Delete repo — cascades to commits, analyses, jobs, and files on disk

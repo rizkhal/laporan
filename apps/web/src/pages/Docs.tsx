@@ -77,6 +77,26 @@ function InlineCode({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * Safely render FAQ answer strings that may contain <InlineCode> tags.
+ * Replaces dangerouslySetInnerHTML with a parser that converts
+ * <InlineCode>x</InlineCode> into the InlineCode React component.
+ */
+function FormattedAnswer({ text }: { text: string }) {
+  const parts = text.split(/(<InlineCode>.*?<\/InlineCode>)/g);
+  return (
+    <>
+      {parts.map((part, i) => {
+        const match = part.match(/<InlineCode>(.*?)<\/InlineCode>/);
+        if (match) {
+          return <InlineCode key={i}>{match[1]}</InlineCode>;
+        }
+        return <span key={i}>{part}</span>;
+      })}
+    </>
+  );
+}
+
 function Step({ number, title, desc }: { number: string; title: string; desc: string }) {
   return (
     <li className="flex gap-4">
@@ -326,7 +346,8 @@ npm install`} lang="bash" />
             <p className="mt-2 text-sm leading-6 text-muted-foreground">Create <InlineCode>apps/api/.env</InlineCode> and set the required variables:</p>
             <CodeBlock code={`PORT=1234
 FRONTEND_URL=http://localhost:4321
-NODE_ENV=development`} lang="bash" />
+NODE_ENV=development
+ENCRYPTION_KEY=<your-64-char-hex-key>`} lang="bash" />
 
             <h3 className="mt-8 text-base font-semibold">4. Setup the database</h3>
             <CodeBlock code={`npm run db:push -w apps/api`} lang="bash" />
@@ -381,6 +402,12 @@ NODE_ENV=development`} lang="bash" />
                     <td className="px-4 py-3">No</td>
                     <td className="px-4 py-3 font-mono text-[13px]">development</td>
                     <td className="px-4 py-3">Set to <InlineCode>production</InlineCode> for production</td>
+                  </tr>
+                  <tr>
+                    <td className="px-4 py-3 font-mono text-[13px] text-foreground">ENCRYPTION_KEY</td>
+                    <td className="px-4 py-3">Recommended</td>
+                    <td className="px-4 py-3 font-mono text-[13px]">—</td>
+                    <td className="px-4 py-3">AES-256-GCM key (64 hex chars) for encrypting LLM API keys at rest. Generate with <InlineCode>openssl rand -hex 32</InlineCode>. Set by the install script automatically.</td>
                   </tr>
                 </tbody>
               </table>
@@ -715,7 +742,7 @@ NODE_ENV=development`} lang="bash" />
                     {item.q}
                     <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
                   </summary>
-                  <div className="border-t border-border px-5 pb-4 pt-3 text-sm leading-6 text-muted-foreground" dangerouslySetInnerHTML={{ __html: item.a }} />
+                  <div className="border-t border-border px-5 pb-4 pt-3 text-sm leading-6 text-muted-foreground"><FormattedAnswer text={item.a} /></div>
                 </details>
               ))}
             </div>
@@ -767,7 +794,7 @@ NODE_ENV=development`} lang="bash" />
                     {item.q}
                     <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
                   </summary>
-                  <div className="border-t border-border px-5 pb-4 pt-3 text-sm leading-6 text-muted-foreground" dangerouslySetInnerHTML={{ __html: item.a }} />
+                  <div className="border-t border-border px-5 pb-4 pt-3 text-sm leading-6 text-muted-foreground"><FormattedAnswer text={item.a} /></div>
                 </details>
               ))}
             </div>

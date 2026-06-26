@@ -145,15 +145,20 @@ export function setupKnownHosts(workspaceId: number): void {
 }
 
 /**
- * Build GIT_SSH_COMMAND for a workspace's SSH key, allowing lenient checking
- * for development environments.
+ * Build GIT_SSH_COMMAND for a workspace's SSH key.
+ * Uses the workspace's known_hosts file with accept-new to auto-add new hosts
+ * on first connection while rejecting changed keys (MITM protection).
  */
 export function buildGitSshCommandLenient(workspaceId: number): string {
   const files = getKeyFilePaths(workspaceId);
   if (!existsSync(files.privateKeyPath)) {
     throw new Error("SSH private key not found for this workspace");
   }
-  return `ssh -i ${files.privateKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`;
+  // Ensure known_hosts exists
+  if (!existsSync(files.knownHostsPath)) {
+    setupKnownHosts(workspaceId);
+  }
+  return `ssh -i ${files.privateKeyPath} -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=${files.knownHostsPath}`;
 }
 
 /**

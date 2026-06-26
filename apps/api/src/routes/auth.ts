@@ -7,6 +7,7 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { requireAuth, slugify } from "../lib/auth";
 import { rateLimit } from "../lib/rate-limiter";
+import { hashToken, getSessionExpiry } from "../lib/crypto";
 
 const router = new Hono();
 
@@ -14,15 +15,24 @@ const router = new Hono();
 const loginRateLimit = rateLimit({
   windowMs: 60 * 1000,
   max: 10,
-  key: (c: any) =>
-    c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || "unknown",
+  key: (req: any) =>
+    req.header("x-forwarded-for") || req.header("x-real-ip") || "unknown",
   message: "Too many login attempts. Try again later.",
+});
+
+// Rate limit: 5 registration attempts per minute per IP
+const registerRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  key: (req: any) =>
+    req.header("x-forwarded-for") || req.header("x-real-ip") || "unknown",
+  message: "Too many registration attempts. Try again later.",
 });
 
 const registerPayload = z.object({
   name: z.string().min(1).max(100),
   email: z.string().email(),
-  password: z.string().min(6).max(100),
+  password: z.string().min(8, "Password must be at least 8 characters").max(100),
 });
 
 const loginPayload = z.object({
@@ -39,14 +49,20 @@ const updateProfilePayload = z.object({
 // Helper to get current user from token (without requiring workspace — used before workspace exists)
 function getUserFromToken(token: string | undefined) {
   if (!token) return null;
-  const session = db.select().from(schema.sessions).where(eq(schema.sessions.token, token)).get();
+  const hashedToken = hashToken(token);
+  const session = db.select().from(schema.sessions).where(eq(schema.sessions.token, hashedToken)).get();
   if (!session) return null;
+  // Check expiry
+  if (session.expiresAt && new Date(session.expiresAt) < new Date()) {
+    db.delete(schema.sessions).where(eq(schema.sessions.id, session.id)).run();
+    return null;
+  }
   const user = db.select().from(schema.users).where(eq(schema.users.id, session.userId)).get();
   return user || null;
 }
 
 // Register
-router.post("/register", async (c) => {
+router.post("/register", registerRateLimit, async (c) => {
   try {
     const body = await c.req.json();
     const parsed = registerPayload.parse(body);
@@ -81,24 +97,27 @@ router.post("/register", async (c) => {
       role: "owner",
     }).run();
 
-    // Create session
-    const token = crypto.randomBytes(48).toString("hex");
-    db.insert(schema.sessions).values({ userId: user.id, token }).run();
+    // Create session with hashed token and expiry
+    const rawToken = crypto.randomBytes(48).toString("hex");
+    const hashedToken = hashToken(rawToken);
+    const expiresAt = getSessionExpiry();
+    db.insert(schema.sessions).values({ userId: user.id, token: hashedToken, expiresAt }).run();
 
     return c.json({
       user: { id: user.id, name: user.name, email: user.email, avatar: user.avatar },
-      token,
+      token: rawToken,
     }, 201);
   } catch (err: any) {
     if (err instanceof z.ZodError) {
       return c.json({ error: err.errors[0].message }, 400);
     }
-    return c.json({ error: err.message || "Registration failed" }, 500);
+    console.error("Registration error:", err);
+    return c.json({ error: "Registration failed" }, 500);
   }
 });
 
 // Login
-router.post("/login", async (c) => {
+router.post("/login", loginRateLimit, async (c) => {
   try {
     const body = await c.req.json();
     const parsed = loginPayload.parse(body);
@@ -113,19 +132,22 @@ router.post("/login", async (c) => {
       return c.json({ error: "Invalid email or password" }, 401);
     }
 
-    // Create session
-    const token = crypto.randomBytes(48).toString("hex");
-    db.insert(schema.sessions).values({ userId: user.id, token }).run();
+    // Create session with hashed token and expiry
+    const rawToken = crypto.randomBytes(48).toString("hex");
+    const hashedToken = hashToken(rawToken);
+    const expiresAt = getSessionExpiry();
+    db.insert(schema.sessions).values({ userId: user.id, token: hashedToken, expiresAt }).run();
 
     return c.json({
       user: { id: user.id, name: user.name, email: user.email, avatar: user.avatar },
-      token,
+      token: rawToken,
     });
   } catch (err: any) {
     if (err instanceof z.ZodError) {
       return c.json({ error: err.errors[0].message }, 400);
     }
-    return c.json({ error: err.message || "Login failed" }, 500);
+    console.error("Login error:", err);
+    return c.json({ error: "Login failed" }, 500);
   }
 });
 
@@ -134,7 +156,8 @@ router.post("/logout", async (c) => {
   const auth = c.req.header("Authorization");
   const token = auth?.replace("Bearer ", "");
   if (token) {
-    db.delete(schema.sessions).where(eq(schema.sessions.token, token)).run();
+    const hashedToken = hashToken(token);
+    db.delete(schema.sessions).where(eq(schema.sessions.token, hashedToken)).run();
   }
   return c.json({ success: true });
 });
@@ -208,7 +231,7 @@ router.put("/profile", async (c) => {
     if (err instanceof z.ZodError) {
       return c.json({ error: err.errors[0].message }, 400);
     }
-    return c.json({ error: err.message || "Update failed" }, 500);
+    return c.json({ error: "Update failed" }, 500);
   }
 });
 
@@ -283,7 +306,7 @@ router.delete("/account", async (c) => {
     if (err instanceof z.ZodError) {
       return c.json({ error: err.errors[0].message }, 400);
     }
-    return c.json({ error: err.message || "Account deletion failed" }, 500);
+    return c.json({ error: "Account deletion failed" }, 500);
   }
 });
 
@@ -295,7 +318,7 @@ router.post("/change-password", async (c) => {
     const body = await c.req.json();
     const parsed = z.object({
       currentPassword: z.string().min(1, "Current password is required"),
-      newPassword: z.string().min(6, "New password must be at least 6 characters").max(100),
+      newPassword: z.string().min(8, "New password must be at least 8 characters").max(100),
     }).parse(body);
 
     // Fetch user with password hash
@@ -322,7 +345,7 @@ router.post("/change-password", async (c) => {
     if (err instanceof z.ZodError) {
       return c.json({ error: err.errors[0].message }, 400);
     }
-    return c.json({ error: err.message || "Failed to change password" }, 500);
+    return c.json({ error: "Failed to change password" }, 500);
   }
 });
 

@@ -2,7 +2,8 @@ import { Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { db } from "../db/index";
 import * as schema from "../db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, lt } from "drizzle-orm";
+import { hashToken, isSessionExpired } from "./crypto";
 
 export interface AuthUser {
   id: number;
@@ -15,6 +16,7 @@ export interface AuthSession {
   id: number;
   userId: number;
   token: string;
+  expiresAt: string | null;
 }
 
 export interface AuthWorkspace {
@@ -36,6 +38,7 @@ export interface AuthContext {
 /**
  * Require authentication and return current user + session.
  * Does NOT require a workspace — use for endpoints that work across workspaces.
+ * Tokens are hashed (SHA-256) before DB lookup. Expired sessions are deleted.
  */
 export function requireUser(c: Context): { user: AuthUser; session: AuthSession } {
   const auth = c.req.header("Authorization");
@@ -44,14 +47,21 @@ export function requireUser(c: Context): { user: AuthUser; session: AuthSession 
     throw new HTTPException(401, { message: "Not authenticated" });
   }
 
+  const hashedToken = hashToken(token);
   const session = db
     .select()
     .from(schema.sessions)
-    .where(eq(schema.sessions.token, token))
+    .where(eq(schema.sessions.token, hashedToken))
     .get();
 
   if (!session) {
     throw new HTTPException(401, { message: "Not authenticated" });
+  }
+
+  // Check session expiry
+  if (isSessionExpired(session.expiresAt)) {
+    db.delete(schema.sessions).where(eq(schema.sessions.id, session.id)).run();
+    throw new HTTPException(401, { message: "Session expired" });
   }
 
   const user = db
@@ -65,7 +75,7 @@ export function requireUser(c: Context): { user: AuthUser; session: AuthSession 
   }
 
   return {
-    session: { id: session.id, userId: session.userId, token: session.token },
+    session: { id: session.id, userId: session.userId, token: session.token, expiresAt: session.expiresAt },
     user: { id: user.id, name: user.name, email: user.email, avatar: user.avatar },
   };
 }

@@ -183,6 +183,7 @@ else
 PORT=$BACKEND_PORT
 FRONTEND_URL=http://localhost:$FRONTEND_PORT
 NODE_ENV=development
+ENCRYPTION_KEY=$(openssl rand -hex 32)
 EOF
 
   # Write web .env so frontend knows API URL and port
@@ -239,6 +240,7 @@ RESPONSE=$(curl -s -X POST "http://localhost:$BACKEND_PORT/api/auth/register" \
 if echo "$RESPONSE" | grep -q '"token"'; then
   TOKEN=$(echo "$RESPONSE" | sed 's/.*"token":"\([^"]*\)".*/\1/')
   echo "$TOKEN" > "$INSTALL_DIR/.admin-token"
+  chmod 600 "$INSTALL_DIR/.admin-token"
   ok "Admin account created"
 else
   ERROR=$(echo "$RESPONSE" | sed 's/.*"error":"\([^"]*\)".*/\1/')

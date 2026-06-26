@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import Database from "better-sqlite3";
+import crypto from "crypto";
 
 let dbPath: string;
 let cleanupDir: string;
@@ -50,10 +51,13 @@ function seedAuthData() {
     "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?) RETURNING id",
   ).get("Test User", "test@example.com", "fake-hash") as { id: number };
 
+  const rawToken = "test-token-12345";
+  // Hash the token the same way the auth system does (SHA-256)
+  const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
   const session = sqlite.prepare(
-    "INSERT INTO sessions (user_id, token) VALUES (?, ?) RETURNING token",
-  ).get(userId.id, "test-token-12345") as { token: string };
-  testToken = session.token;
+    "INSERT INTO sessions (user_id, token, expires_at) VALUES (?, ?, ?) RETURNING token",
+  ).get(userId.id, hashedToken, new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()) as { token: string };
+  testToken = rawToken;
 
   const workspace = sqlite.prepare(
     "INSERT INTO workspaces (name, slug) VALUES (?, ?) RETURNING id",
@@ -85,6 +89,7 @@ function createTables() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       token TEXT NOT NULL UNIQUE,
+      expires_at TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
