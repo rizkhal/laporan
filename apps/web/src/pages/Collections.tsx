@@ -133,11 +133,11 @@ export default function Collections() {
           <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">Each reporting period captures repository activity before analysis begins.</p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild><Button onClick={() => setSelectedRepoIds(null)}><Plus className="size-4" /> New collection</Button></DialogTrigger>
-          <DialogContent className="max-w-md rounded-2xl">
-            <DialogHeader><DialogTitle>Create collection</DialogTitle></DialogHeader>
-            <div className="space-y-5">
-              <div className="grid grid-cols-2 gap-3">
+          <DialogTrigger asChild><Button onClick={() => { setSelectedRepoIds(null); setError(null); }}><Plus className="size-4" /> New collection</Button></DialogTrigger>
+                    <DialogContent className="max-w-md rounded-2xl">
+                      <DialogHeader><DialogTitle>Create collection</DialogTitle></DialogHeader>
+                      <div className="space-y-5">
+                        <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2"><Label>Year</Label><Input type="number" value={year} onChange={(event) => setYear(parseInt(event.target.value) || new Date().getFullYear())} /></div>
                 <div className="space-y-2">
                   <Label>Month</Label>
@@ -165,6 +165,7 @@ export default function Collections() {
                   })}
                 </div>
               </div>
+              {error && <div className="rounded-xl border border-destructive/20 bg-destructive/8 p-4 text-sm text-destructive">{error}</div>}
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
                 <Button onClick={handleCreate} disabled={creating || selectedRepoIds?.length === 0}>
@@ -237,7 +238,7 @@ export default function Collections() {
       )}
 
       {/* Edit collection dialog */}
-      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+      <Dialog open={editDialogOpen} onOpenChange={(open) => { setEditDialogOpen(open); if (!open) setError(null); }}>
         <DialogContent className="max-w-md rounded-2xl">
           <DialogHeader><DialogTitle>Edit collection</DialogTitle></DialogHeader>
           <div className="space-y-4">
@@ -262,6 +263,7 @@ export default function Collections() {
                 );
               })}
             </div>
+            {error && <div className="rounded-xl border border-destructive/20 bg-destructive/8 p-4 text-sm text-destructive">{error}</div>}
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setEditDialogOpen(false)}>Cancel</Button>
               <Button onClick={handleSaveEdit} disabled={editing || editRepoIds?.length === 0}>

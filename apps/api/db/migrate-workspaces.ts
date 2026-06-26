@@ -340,7 +340,54 @@ export function runMigration(): void {
     } catch (err: any) {
       console.log(`  ⚠️ Collections unique_key migration skipped: ${err.message}`);
     }
-} catch (err: any) {
+
+    // 16. Create collection_repos table for per-repo uniqueness enforcement
+    try {
+      const hasCollectionRepos = (sqlite!.prepare("PRAGMA table_info(collection_repos)").all() as any[]).length > 0;
+      if (!hasCollectionRepos) {
+        sqlite!.exec(`
+          CREATE TABLE IF NOT EXISTS collection_repos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            workspace_id INTEGER NOT NULL,
+            collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+            repo_id INTEGER NOT NULL,
+            year INTEGER NOT NULL,
+            month INTEGER NOT NULL
+          );
+        `);
+        console.log("  → Created collection_repos table");
+
+        // Migrate existing data: for each collection with non-null repo_ids, insert rows
+        const allCollections = sqlite!.prepare("SELECT id, year, month, repo_ids FROM collections WHERE repo_ids IS NOT NULL").all() as any[];
+        let inserted = 0;
+        for (const col of allCollections) {
+          let repoIds: number[] = [];
+          try { repoIds = JSON.parse(col.repo_ids); } catch { continue; }
+          if (!Array.isArray(repoIds) || repoIds.length === 0) continue;
+          // workspace_id is migrated via JOIN with collections table
+          const insertStmt = sqlite!.prepare(
+            `INSERT OR IGNORE INTO collection_repos (workspace_id, collection_id, repo_id, year, month)
+             SELECT c.workspace_id, ?, ?, ?, ?
+             FROM collections c WHERE c.id = ?`
+          );
+          for (const repoId of repoIds) {
+            insertStmt.run(col.id, repoId, col.year, col.month, col.id);
+            inserted++;
+          }
+        }
+        console.log(`  → Migrated ${inserted} collection_repo entries from existing collections`);
+
+        // Create UNIQUE index for per-repo per-period enforcement per workspace
+        sqlite!.exec(`
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_collection_repos_unique
+          ON collection_repos(workspace_id, repo_id, year, month);
+        `);
+        console.log("  → Created UNIQUE index on (workspace_id, repo_id, year, month) in collection_repos");
+      }
+    } catch (err: any) {
+      console.log(`  ⚠️ Collection repos migration skipped: ${err.message}`);
+    }
+  } catch (err: any) {
   console.error("❌ Workspace migration error:", err.message);
 } finally {
   if (sqlite) {

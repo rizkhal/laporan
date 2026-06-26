@@ -139,6 +139,18 @@ function createTables() {
     -- Create unique index for DB-level duplicate prevention
     CREATE UNIQUE INDEX IF NOT EXISTS idx_collections_unique
     ON collections(workspace_id, year, month, unique_key);
+
+    CREATE TABLE IF NOT EXISTS collection_repos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      workspace_id INTEGER NOT NULL,
+      collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+      repo_id INTEGER NOT NULL,
+      year INTEGER NOT NULL,
+      month INTEGER NOT NULL
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_collection_repos_unique
+    ON collection_repos(workspace_id, repo_id, year, month);
   `);
 }
 
@@ -282,5 +294,225 @@ describe("POST /api/collections — Duplicate Validation", () => {
     expect(res.status).toBe(201);
     const data = await res.json();
     expect(data.workspaceId).toBe(ws2.id);
+});
+
+  it("8. should treat empty array repoIds as ALL (same uniqueKey as null)", async () => {
+    // Create first with empty array
+    const res1 = await app.request("/api/collections", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ year: 2024, month: 12, repoIds: [] }),
+    });
+    expect(res1.status).toBe(201);
+
+    // Same year+month with no repoIds should be duplicate
+    const res2 = await app.request("/api/collections", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ year: 2024, month: 12 }),
+    });
+    expect(res2.status).toBe(409);
+  });
+});
+
+describe("PUT /api/collections/:id — Duplicate Update Prevention", () => {
+  let app: any;
+
+  beforeAll(async () => {
+    resetDatabase();
+
+    // Force fresh imports
+    vi.resetModules();
+
+    const { collectionsRouter } = await import("../routes/collections");
+    const { Hono } = await import("hono");
+    app = new Hono();
+    app.route("/api/collections", collectionsRouter);
+  });
+
+  it("should allow updating a collection with different repoIds", async () => {
+    // Create two collections with different repoIds at the same month
+    const res1 = await app.request("/api/collections", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ year: 2026, month: 6, repoIds: [1, 2] }),
+    });
+    expect(res1.status).toBe(201);
+    const col1 = await res1.json();
+
+    const res2 = await app.request("/api/collections", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ year: 2026, month: 6, repoIds: [3] }),
+    });
+    expect(res2.status).toBe(201);
+    const col2 = await res2.json();
+
+    // Update collection 2 with still-different repoIds — should work
+    const res3 = await app.request(`/api/collections/${col2.id}`, {
+      method: "PUT",
+      headers: authHeaders(),
+      body: JSON.stringify({ repoIds: [4] }),
+    });
+    expect(res3.status).toBe(200);
+  });
+
+  it("should reject updating a collection to match another's repoIds", async () => {
+    // Collections from previous test: col1=[1,2] at Jun 2026, col2=[4] at Jun 2026
+    // Try to update col2 to have [1,2] at Jun 2026 — should fail
+    const allCollections = await app.request("/api/collections", {
+      method: "GET",
+      headers: authHeaders(),
+    });
+    const cols = await allCollections.json();
+    // Find the collection with repoIds=[3] or [4] (the one we modified)
+    const col2 = cols.find((c: any) => c.repoIds?.length === 1);
+    const col1 = cols.find((c: any) => c.repoIds?.length === 2);
+
+    const res = await app.request(`/api/collections/${col2.id}`, {
+      method: "PUT",
+      headers: authHeaders(),
+      body: JSON.stringify({ repoIds: col1.repoIds }),
+    });
+    expect(res.status).toBe(409);
+    const data = await res.json();
+    expect(data.error).toContain("sudah ada");
+  });
+
+  it("should allow editing a collection's repoIds when no conflict exists", async () => {
+    // Find col1 and update with a completely different set
+    const allCollections = await app.request("/api/collections", {
+      method: "GET",
+      headers: authHeaders(),
+    });
+    const cols = await allCollections.json();
+    const col1 = cols.find((c: any) => c.repoIds?.length === 2);
+
+    const res = await app.request(`/api/collections/${col1.id}`, {
+      method: "PUT",
+      headers: authHeaders(),
+      body: JSON.stringify({ repoIds: [5, 6, 7] }),
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.repoIds).toEqual([5, 6, 7]);
+  });
+});
+
+describe("POST /api/collections — Per-Repo Uniqueness", () => {
+  let app: any;
+
+  beforeAll(async () => {
+    resetDatabase();
+
+    // Force fresh imports
+    vi.resetModules();
+
+    const { collectionsRouter } = await import("../routes/collections");
+    const { Hono } = await import("hono");
+    app = new Hono();
+    app.route("/api/collections", collectionsRouter);
+  });
+
+  it("should allow creating non-overlapping repos at same period", async () => {
+    const res1 = await app.request("/api/collections", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ year: 2026, month: 6, repoIds: [1, 2] }),
+    });
+    expect(res1.status).toBe(201);
+
+    // Repo 3 doesn't overlap with [1,2], should be allowed
+    const res2 = await app.request("/api/collections", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ year: 2026, month: 6, repoIds: [3] }),
+    });
+    expect(res2.status).toBe(201);
+  });
+
+  it("should reject creating a repo that overlaps with existing collection", async () => {
+    // repo 1 is already at June 2026 from the previous test
+    const res = await app.request("/api/collections", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ year: 2026, month: 6, repoIds: [1, 5] }),
+    });
+    expect(res.status).toBe(409);
+    const data = await res.json();
+    expect(data.error).toContain("sudah digunakan");
+  });
+
+  it("should reject 'all repos' when other collections exist at same period", async () => {
+    // [1,2] and [3] exist at June 2026, so all-repos should be blocked
+    const res = await app.request("/api/collections", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ year: 2026, month: 6 }),
+    });
+    expect(res.status).toBe(409);
+  });
+
+  it("should reject creating a collection when 'all repos' already exists", async () => {
+    // First, create an all-repos collection at a different month
+    const res1 = await app.request("/api/collections", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ year: 2027, month: 1 }),
+    });
+    expect(res1.status).toBe(201);
+
+    // Now try to create a collection with specific repos at the same period
+    const res2 = await app.request("/api/collections", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ year: 2027, month: 1, repoIds: [10] }),
+    });
+    expect(res2.status).toBe(409);
+  });
+
+  it("should reject PUT update that creates repo overlap", async () => {
+    // Create collections at a fresh period
+    const res1 = await app.request("/api/collections", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ year: 2027, month: 3, repoIds: [1] }),
+    });
+    expect(res1.status).toBe(201);
+    const col1 = await res1.json();
+
+    const res2 = await app.request("/api/collections", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ year: 2027, month: 3, repoIds: [5] }),
+    });
+    expect(res2.status).toBe(201);
+    const col2 = await res2.json();
+
+    // Try to update col2 to include repo 1 (already in col1)
+    const res3 = await app.request(`/api/collections/${col2.id}`, {
+      method: "PUT",
+      headers: authHeaders(),
+      body: JSON.stringify({ repoIds: [5, 1] }),
+    });
+    expect(res3.status).toBe(409);
+  });
+
+  it("should allow PUT update with repos that don't overlap", async () => {
+    const allCollections = await app.request("/api/collections", {
+      method: "GET",
+      headers: authHeaders(),
+    });
+    const cols = await allCollections.json();
+    // Find col2 (repo [5] at 2027-3)
+    const col2 = cols.find((c: any) => c.year === 2027 && c.month === 3 && c.repoIds?.length === 1 && c.repoIds[0] === 5);
+    expect(col2).toBeDefined();
+
+    const res = await app.request(`/api/collections/${col2.id}`, {
+      method: "PUT",
+      headers: authHeaders(),
+      body: JSON.stringify({ repoIds: [5, 99] }),
+    });
+    expect(res.status).toBe(200);
   });
 });

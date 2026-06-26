@@ -145,6 +145,16 @@ export const reportTemplates = sqliteTable("report_templates", {
   updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
 });
 
+// ── Collection-Repo Junction (per-repo uniqueness per workspace+period) ──
+export const collectionRepos = sqliteTable("collection_repos", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: integer("workspace_id").notNull(),
+  collectionId: integer("collection_id").notNull().references(() => collections.id, { onDelete: "cascade" }),
+  repoId: integer("repo_id").notNull(),
+  year: integer("year").notNull(),
+  month: integer("month").notNull(),
+});
+
 // ── Generated Reports ──
 export const reports = sqliteTable("reports", {
   id: integer("id").primaryKey({ autoIncrement: true }),
