@@ -79,6 +79,7 @@ export const collections = sqliteTable("collections", {
   title: text("title").notNull(),
   status: text("status").notNull().default("draft"), // draft, collecting, completed, analyzing, analyzed, generating, generated
   repoIds: text("repo_ids"), // JSON array of repo IDs, null = all repos
+  uniqueKey: text("unique_key"), // sorted JSON string of repoIds, '__ALL__' for null — used for DB-level uniqueness
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
   updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
 });

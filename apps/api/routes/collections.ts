@@ -7,6 +7,14 @@ import { requireAuth, assertOwnership } from "../lib/auth";
 
 const router = new Hono();
 
+// Helper: compute a deterministic unique key for a set of repoIds.
+// This ensures DB-level uniqueness: same (workspaceId, year, month, repoIds)
+// produces the same uniqueKey, so a UNIQUE index prevents duplicates.
+function computeUniqueKey(repoIds: number[] | undefined | null): string {
+  if (!repoIds || repoIds.length === 0) return "__ALL__";
+  return JSON.stringify([...repoIds].sort());
+}
+
 // List all collections scoped to workspace
 router.get("/", (c) => {
   const ctx = requireAuth(c);
@@ -29,8 +37,12 @@ router.post("/", async (c) => {
   const body = await c.req.json();
   const parsed = z.object({ year: z.number(), month: z.number(), repoIds: z.array(z.number()).optional() }).parse(body);
 
-  // Validate: exact duplicate (same year, month, repoIds)
-  const newRepoIdsJson = parsed.repoIds ? JSON.stringify([...parsed.repoIds].sort()) : null;
+  const uniqueKey = computeUniqueKey(parsed.repoIds);
+  const title = `${new Date(parsed.year, parsed.month - 1).toLocaleString("default", { month: "long" })} ${parsed.year}`;
+
+  // Check for duplicate using uniqueKey (exact DB-level match).
+  // Sequential synchronous operations + single-threaded JS make this safe.
+  // The UNIQUE index on (workspace_id, year, month, unique_key) is the final safeguard.
   const existing = db
     .select()
     .from(schema.collections)
@@ -39,27 +51,27 @@ router.post("/", async (c) => {
         eq(schema.collections.workspaceId, ctx.workspace.id),
         eq(schema.collections.year, parsed.year),
         eq(schema.collections.month, parsed.month),
+        eq(schema.collections.uniqueKey, uniqueKey),
       ),
     )
-    .all()
-    .find((col) => {
-      const existingJson = col.repoIds ? JSON.stringify([...JSON.parse(col.repoIds)].sort()) : null;
-      return existingJson === newRepoIdsJson;
-    });
+    .get();
 
   if (existing) {
-    const title = `${new Date(parsed.year, parsed.month - 1).toLocaleString("default", { month: "long" })} ${parsed.year}`;
     return c.json({ error: `Koleksi untuk ${title} dengan repositori yang sama sudah ada.` }, 409);
   }
 
-  const title = `${new Date(parsed.year, parsed.month - 1).toLocaleString("default", { month: "long" })} ${parsed.year}`;
+  // Normalize: always store sorted repoIds for consistency
+  const normalizedRepoIds = parsed.repoIds?.length
+    ? JSON.stringify([...parsed.repoIds].sort())
+    : null;
 
   const result = db.insert(schema.collections).values({
     workspaceId: ctx.workspace.id,
     year: parsed.year,
     month: parsed.month,
     title,
-    repoIds: parsed.repoIds ? JSON.stringify(parsed.repoIds) : null,
+    repoIds: normalizedRepoIds,
+    uniqueKey,
   }).returning().get();
 
   const resp = { ...result, repoIds: result.repoIds ? JSON.parse(result.repoIds) : null };
@@ -88,7 +100,12 @@ router.put("/:id", async (c) => {
 
   const updateData: any = { updatedAt: new Date().toISOString() };
   if (parsed.repoIds !== undefined) {
-    updateData.repoIds = parsed.repoIds === null ? null : JSON.stringify(parsed.repoIds);
+    // Normalize: store sorted repoIds and update uniqueKey
+    const normalizedRepoIds = parsed.repoIds?.length
+      ? JSON.stringify([...parsed.repoIds].sort())
+      : null;
+    updateData.repoIds = normalizedRepoIds;
+    updateData.uniqueKey = computeUniqueKey(parsed.repoIds ?? undefined);
   }
 
   const result = db.update(schema.collections).set(updateData).where(eq(schema.collections.id, id)).returning().get();

@@ -9,6 +9,7 @@
     "build": "npm run build -w apps/web",
     "db:push": "npm run db:push -w apps/api",
     "db:generate": "npm run db:generate -w apps/api",
+    "test": "npm run test -w apps/api",
     "db:studio": "npm run db:studio -w apps/api",
     "db:migrate": "npx tsx apps/api/db/migrate-workspaces.ts"
   },

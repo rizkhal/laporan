@@ -284,6 +284,62 @@ export function runMigration(): void {
     } catch (err: any) {
       console.log(`  ⚠️ Reports google_doc_id migration skipped: ${err.message}`);
     }
+
+    // 15. Add unique_key column to collections and create UNIQUE index for duplicate prevention
+    try {
+      const collectionsCols = sqlite!.prepare("PRAGMA table_info(collections)").all() as any[];
+      const hasUniqueKey = collectionsCols.some((c: any) => c.name === "unique_key");
+      if (!hasUniqueKey) {
+        sqlite!.exec("ALTER TABLE collections ADD COLUMN unique_key TEXT;");
+        console.log("  → Added unique_key column to collections");
+
+        // Backfill existing records with computed unique keys
+        const allCollections = sqlite!.prepare("SELECT id, repo_ids, updated_at FROM collections").all() as any[];
+        for (const col of allCollections) {
+          let uniqueKey: string;
+          if (!col.repo_ids) {
+            uniqueKey = "__ALL__";
+          } else {
+            try {
+              const parsed = JSON.parse(col.repo_ids);
+              uniqueKey = JSON.stringify([...parsed].sort());
+            } catch {
+              uniqueKey = "__ALL__";
+            }
+          }
+          sqlite!.prepare("UPDATE collections SET unique_key = ? WHERE id = ?").run(uniqueKey, col.id);
+        }
+
+        // Remove duplicates: keep only the newest record per unique_key within same (workspace_id, year, month)
+        // Uses SQLite's rowid trick to identify and delete older duplicates
+        const duplicates = sqlite!.prepare(`
+          SELECT c1.id FROM collections c1
+          WHERE c1.id != (
+            SELECT c2.id FROM collections c2
+            WHERE c2.workspace_id = c1.workspace_id
+              AND c2.year = c1.year
+              AND c2.month = c1.month
+              AND c2.unique_key = c1.unique_key
+            ORDER BY c2.updated_at DESC, c2.id DESC
+            LIMIT 1
+          )
+        `).all() as any[];
+        if (duplicates.length > 0) {
+          const ids = duplicates.map((d: any) => d.id);
+          sqlite!.prepare(`DELETE FROM collections WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+          console.log(`  → Removed ${duplicates.length} duplicate collections`);
+        }
+
+        // Create UNIQUE index for DB-level duplicate enforcement
+        sqlite!.exec(`
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_collections_unique
+          ON collections(workspace_id, year, month, unique_key);
+        `);
+        console.log("  → Created UNIQUE index on (workspace_id, year, month, unique_key)");
+      }
+    } catch (err: any) {
+      console.log(`  ⚠️ Collections unique_key migration skipped: ${err.message}`);
+    }
 } catch (err: any) {
   console.error("❌ Workspace migration error:", err.message);
 } finally {
