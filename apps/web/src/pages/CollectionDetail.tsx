@@ -112,6 +112,18 @@ export default function CollectionDetail() {
     }
   }
 
+  async function collectRepo(repoId: number) {
+    try {
+      setBusy("collect");
+      await apiFetch(`/collections/${collectionId}/collect`, { method: "POST", body: JSON.stringify({ repoId }) });
+      await loadAll();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function analyzeRepo(repoId: number) {
     try {
       setBusy("analyze");
@@ -168,6 +180,11 @@ export default function CollectionDetail() {
   );
   const analysisComplete = analyses.length > 0 && analyses.every((analysis) => analysis.status === "completed");
   const currentPhase = report ? 3 : analysisComplete ? 2 : 1;
+
+  // Only show repos that belong to this collection
+  const collectionRepos = collection?.repoIds
+    ? repos.filter(r => collection.repoIds?.includes(r.id))
+    : repos;
 
   if (loading) {
     return <div className="space-y-5"><div className="skeleton h-10 w-72 rounded-lg" /><div className="skeleton h-24 rounded-xl" /><div className="skeleton h-96 rounded-xl" /></div>;
@@ -262,6 +279,26 @@ export default function CollectionDetail() {
                     <button key={repo.id} type="button" onClick={() => setSelectedRepo(repo.id)} className={`w-full rounded-xl p-3 text-left transition-colors ${selectedRepo === repo.id ? "bg-primary/8" : "hover:bg-muted"}`}>
                       <div className="flex items-center gap-2"><GitBranch className="size-3.5 text-muted-foreground" /><span className="truncate text-sm font-semibold">{repo.name}</span><span className="ml-auto font-mono text-xs">{repoCommits.length}</span></div>
                       <div className="mt-2 flex gap-3 font-mono text-[10px] text-muted-foreground"><span className="text-success-foreground">+{insertions}</span><span className="text-destructive">-{deletions}</span></div>
+                      <div className="mt-2 flex items-center gap-1.5 border-t border-border/50 pt-2">
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); collectRepo(repo.id); }}
+                          disabled={busy === "collect"}
+                          className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50"
+                        >
+                          {busy === "collect" ? <Loader2 className="size-3 animate-spin" /> : <GitCommit className="size-3" />}
+                          Collect
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); analyzeRepo(repo.id); }}
+                          disabled={busy === "analyze" || repoCommits.length === 0}
+                          className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50"
+                        >
+                          {busy === "analyze" ? <Loader2 className="size-3 animate-spin" /> : <Sparkles className="size-3" />}
+                          Analyze
+                        </button>
+                      </div>
                     </button>
                   );
                 })}
@@ -300,17 +337,17 @@ export default function CollectionDetail() {
               <Button onClick={() => runAction("analyze")} disabled={!!busy || commits.length === 0}>{busy === "analyze" ? <Loader2 className="animate-spin" /> : <Sparkles />} Run analysis</Button>
             </EmptyState>
           ) : (
-            <div className="grid gap-5 xl:grid-cols-[1fr_300px]">
+            <div className="grid gap-5 xl:grid-cols-[1fr_400px]">
               <div className="space-y-4">
                 {workItems.map((item) => <WorkItemCard key={item.key} item={item} repoName={repoMap.get(item.repoId)?.name || "Unknown repository"} />)}
               </div>
               <aside className="space-y-4">
                 <div className="surface rounded-xl p-5">
                   <p className="text-xs font-medium text-muted-foreground">Analysis coverage</p>
-                  <p className="mt-3 font-mono text-3xl font-semibold">{analyses.filter((item) => item.status === "completed").length}<span className="text-base text-muted-foreground">/{repos.length}</span></p>
+                  <p className="mt-3 font-mono text-3xl font-semibold">{analyses.filter((item) => item.status === "completed").length}<span className="text-base text-muted-foreground">/{collectionRepos.length}</span></p>
                   <p className="mt-1 text-xs text-muted-foreground">repositories analyzed</p>
                   <div className="mt-4 space-y-2">
-                    {repos.map((repo) => {
+                    {collectionRepos.map((repo) => {
                       const analysis = analyses.find((item) => item.repoId === repo.id);
                       return <div key={repo.id} className="flex items-center gap-2 text-xs"><span className={`size-1.5 rounded-full ${analysis?.status === "completed" ? "bg-success" : "bg-muted-foreground/30"}`} /><span className="truncate">{repo.name}</span><span className="ml-auto text-muted-foreground">{analysis?.status || "pending"}</span></div>;
                     })}

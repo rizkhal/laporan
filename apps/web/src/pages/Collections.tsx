@@ -85,7 +85,8 @@ export default function Collections() {
       ? (() => { try { return JSON.parse(collection.repoIds); } catch { return null; } })()
       : collection.repoIds;
     setEditingCollection(collection);
-    setEditRepoIds(parsed);
+    // null means "all repos" — convert to the full list since we no longer have an "all repos" UI
+    setEditRepoIds(parsed ? [...parsed] : repos.map(r => r.id));
     setEditDialogOpen(true);
   }
 
@@ -116,7 +117,7 @@ export default function Collections() {
       await apiFetch(`/collections/${id}`, { method: "DELETE" });
       setCollections((items) => items.filter((item) => item.id !== id));
     } catch (err: any) {
-      setError(err.message);
+      alert(err.message);
     }
   }
 
@@ -133,7 +134,7 @@ export default function Collections() {
           <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">Each reporting period captures repository activity before analysis begins.</p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild><Button onClick={() => { setSelectedRepoIds(null); setError(null); }}><Plus className="size-4" /> New collection</Button></DialogTrigger>
+          <DialogTrigger asChild><Button onClick={() => { setSelectedRepoIds([]); setError(null); }}><Plus className="size-4" /> New collection</Button></DialogTrigger>
                     <DialogContent className="max-w-md rounded-2xl">
                       <DialogHeader><DialogTitle>Create collection</DialogTitle></DialogHeader>
                       <div className="space-y-5">
@@ -148,11 +149,17 @@ export default function Collections() {
               </div>
               <div className="space-y-2">
                 <Label>Repositories</Label>
-                <button type="button" onClick={() => setSelectedRepoIds(null)} className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left ${selectedRepoIds === null ? "border-primary/40 bg-primary/5" : "hover:bg-muted"}`}>
-                  <GitBranch className="size-4 text-muted-foreground" />
-                  <span className="text-sm font-medium">All enabled repositories</span>
-                  <span className="ml-auto font-mono text-xs text-muted-foreground">{repos.length}</span>
-                </button>
+                {repos.length > 0 && (
+                  <label className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-muted">
+                    <input
+                      type="checkbox"
+                      checked={selectedRepoIds?.length === repos.length}
+                      onChange={() => setSelectedRepoIds(selectedRepoIds?.length === repos.length ? [] : repos.map(r => r.id))}
+                      className="size-4 rounded border-input bg-card"
+                    />
+                    <span className="text-sm font-medium">Select all</span>
+                  </label>
+                )}
                 <div className="grid max-h-52 gap-2 overflow-y-auto">
                   {repos.map((repo) => {
                     const checked = selectedRepoIds?.includes(repo.id) || false;
@@ -176,8 +183,6 @@ export default function Collections() {
           </DialogContent>
         </Dialog>
       </section>
-
-      {error && <div className="rounded-xl border border-destructive/20 bg-destructive/8 p-4 text-sm text-destructive">{error}</div>}
 
       {collections.length === 0 ? (
         <div className="surface rounded-xl px-6 py-16 text-center">
@@ -247,11 +252,17 @@ export default function Collections() {
                 Editing repositories for <strong>{editingCollection.title}</strong>
               </p>
             )}
-            <button type="button" onClick={() => setEditRepoIds(null)} className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left ${editRepoIds === null ? "border-primary/40 bg-primary/5" : "hover:bg-muted"}`}>
-              <GitBranch className="size-4 text-muted-foreground" />
-              <span className="text-sm font-medium">All enabled repositories</span>
-              <span className="ml-auto font-mono text-xs text-muted-foreground">{repos.length}</span>
-            </button>
+            {repos.length > 0 && (
+              <label className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-muted">
+                <input
+                  type="checkbox"
+                  checked={editRepoIds?.length === repos.length}
+                  onChange={() => setEditRepoIds(editRepoIds?.length === repos.length ? [] : repos.map(r => r.id))}
+                  className="size-4 rounded border-input bg-card"
+                />
+                <span className="text-sm font-medium">Select all</span>
+              </label>
+            )}
             <div className="grid max-h-52 gap-2 overflow-y-auto">
               {repos.map((repo) => {
                 const checked = editRepoIds?.includes(repo.id) || false;

@@ -14,20 +14,32 @@ router.post("/:id/collect", async (c) => {
   const collection = db.select().from(schema.collections).where(eq(schema.collections.id, id)).get();
   assertOwnership(collection, ctx.workspace.id, "Collection");
 
+  // Parse body for optional specific repoId
+  const body = await c.req.json().catch(() => ({}));
+  const specificRepoId = body.repoId ? parseInt(body.repoId) : null;
+
   // Update status to collecting
   db.update(schema.collections).set({ status: "collecting" }).where(eq(schema.collections.id, id)).run();
 
-  // Determine which repos to collect: specific repoIds or all workspace-enabled
-  const selectedRepoIds: number[] = collection.repoIds ? JSON.parse(collection.repoIds) : [];
+  // Determine which repos to collect: specific repoId, collection repoIds, or all workspace-enabled
   let repos: (typeof schema.repositories.$inferSelect)[];
-  if (selectedRepoIds.length > 0) {
-    repos = selectedRepoIds
-      .map(rid => db.select().from(schema.repositories).where(and(eq(schema.repositories.id, rid), eq(schema.repositories.workspaceId, ctx.workspace.id))).get())
-      .filter((repo): repo is typeof schema.repositories.$inferSelect => Boolean(repo));
+  if (specificRepoId) {
+    // If collecting a specific repo, just use that one (if it belongs to the workspace)
+    const repo = db.select().from(schema.repositories)
+      .where(and(eq(schema.repositories.id, specificRepoId), eq(schema.repositories.workspaceId, ctx.workspace.id)))
+      .get();
+    repos = repo ? [repo] : [];
   } else {
-    repos = db.select().from(schema.repositories)
-      .where(and(eq(schema.repositories.workspaceId, ctx.workspace.id), eq(schema.repositories.enabled, true as any)))
-      .all();
+    const selectedRepoIds: number[] = collection.repoIds ? JSON.parse(collection.repoIds) : [];
+    if (selectedRepoIds.length > 0) {
+      repos = selectedRepoIds
+        .map(rid => db.select().from(schema.repositories).where(and(eq(schema.repositories.id, rid), eq(schema.repositories.workspaceId, ctx.workspace.id))).get())
+        .filter((repo): repo is typeof schema.repositories.$inferSelect => Boolean(repo));
+    } else {
+      repos = db.select().from(schema.repositories)
+        .where(and(eq(schema.repositories.workspaceId, ctx.workspace.id), eq(schema.repositories.enabled, true as any)))
+        .all();
+    }
   }
 
   // Check for existing queued/running collect jobs to avoid duplicates
