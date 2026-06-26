@@ -20,7 +20,7 @@ set -euo pipefail
 # ── Defaults ──
 INSTALL_DIR="${INSTALL_DIR:-/opt/laporan}"
 REPO_URL="${REPO_URL:-https://github.com/rizkhal/laporan.git}"
-BRANCH="${BRANCH:-main}"
+BRANCH="${BRANCH:-master}"
 PORT="${PORT:-3000}"
 
 ADMIN_NAME="${ADMIN_NAME:-Admin}"
