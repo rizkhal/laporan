@@ -4,7 +4,7 @@ import { fileURLToPath } from "url";
 
 // Load env BEFORE any other module executes (dynamic imports are NOT hoisted)
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.join(__dirname, ".env") });
+dotenv.config({ path: path.join(__dirname, "../.env") });
 
 // Dynamic imports ensure db/index.ts (which reads env at module level) runs AFTER dotenv
 const [{ Hono }, { cors }, { HTTPException }, { serve }, { reposRouter },

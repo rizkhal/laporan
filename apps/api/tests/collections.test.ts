@@ -196,7 +196,7 @@ describe("POST /api/collections — Duplicate Validation", () => {
     // Force fresh imports so db/index.ts reads the test DATABASE_URL
     vi.resetModules();
 
-    const { collectionsRouter } = await import("../routes/collections");
+    const { collectionsRouter } = await import("../src/routes/collections");
     const { Hono } = await import("hono");
     app = new Hono();
     app.route("/api/collections", collectionsRouter);
@@ -324,7 +324,7 @@ describe("PUT /api/collections/:id — Duplicate Update Prevention", () => {
     // Force fresh imports
     vi.resetModules();
 
-    const { collectionsRouter } = await import("../routes/collections");
+    const { collectionsRouter } = await import("../src/routes/collections");
     const { Hono } = await import("hono");
     app = new Hono();
     app.route("/api/collections", collectionsRouter);
@@ -408,7 +408,7 @@ describe("POST /api/collections — Per-Repo Uniqueness", () => {
     // Force fresh imports
     vi.resetModules();
 
-    const { collectionsRouter } = await import("../routes/collections");
+    const { collectionsRouter } = await import("../src/routes/collections");
     const { Hono } = await import("hono");
     app = new Hono();
     app.route("/api/collections", collectionsRouter);

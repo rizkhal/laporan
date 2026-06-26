@@ -17,7 +17,7 @@ function getDbPath(): string {
   if (process.env.DATABASE_URL) {
     return process.env.DATABASE_URL.replace("file:", "");
   }
-  return path.join(__dirname, "dev.db");
+  return path.join(__dirname, "../../db/dev.db");
 }
 
 function slugify(text: string): string {
