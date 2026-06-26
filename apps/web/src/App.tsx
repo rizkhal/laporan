@@ -4,8 +4,8 @@ import { ToastProvider } from "./components/toast";
 import { ProtectedRoute } from "./lib/protected-route";
 import { Layout } from "./components/layout";
 import Landing from "./pages/Landing";
+import Docs from "./pages/Docs";
 import Login from "./pages/Login";
-import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 import Repositories from "./pages/Repositories";
 import Collections from "./pages/Collections";
@@ -19,8 +19,9 @@ export default function App() {
       <Routes>
         {/* Public routes */}
         <Route path="/" element={<Landing />} />
+        <Route path="/docs" element={<Docs />} />
         <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
+
 
         {/* Protected routes */}
         <Route path="/dashboard" element={<ProtectedRoute><Layout><Dashboard /></Layout></ProtectedRoute>} />

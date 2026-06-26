@@ -156,11 +156,14 @@ export default function Landing() {
             >
               {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
             </button>
+            <a href="/docs" className="hidden text-sm font-medium text-muted-foreground transition-colors hover:text-foreground sm:inline">
+              Docs
+            </a>
             <a href="/login" className="hidden text-sm font-medium text-muted-foreground transition-colors hover:text-foreground sm:inline">
               Sign in
             </a>
             <a
-              href="/register"
+              href="/docs#quick-start"
               className="inline-flex h-9 items-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/15 transition-all hover:bg-primary/90 active:scale-[0.98]"
             >
               Get started
@@ -190,7 +193,7 @@ export default function Landing() {
             <Reveal delay={270}>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                 <a
-                  href="/register"
+                  href="/docs#quick-start"
                   className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/15 transition-all hover:bg-primary/90 active:scale-[0.98]"
                 >
                   Deploy on your server <ArrowRight className="size-4" />
@@ -355,7 +358,7 @@ export default function Landing() {
           <Reveal delay={100}>
             <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
               <a
-                href="/register"
+                href="/docs#quick-start"
                 className="inline-flex h-11 items-center justify-center rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/15 transition-all hover:bg-primary/90 active:scale-[0.98]"
               >
                 Get started

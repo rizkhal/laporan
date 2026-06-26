@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, Navigate, useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -61,8 +61,7 @@ export default function Login() {
         </form>
 
         <p className="mt-6 text-center text-sm text-muted-foreground">
-          Don&apos;t have an account?{" "}
-          <Link to="/register" className="font-medium text-primary hover:underline">Create one</Link>
+          This is a self-hosted instance. Contact your administrator for access.
         </p>
       </div>
     </div>

@@ -22,7 +22,6 @@ interface AuthContextType {
   workspaces: Workspace[];
   activeWorkspace: Workspace | null;
   login: (email: string, password: string) => Promise<void>;
-  register: (name: string, email: string, password: string) => Promise<void>;
   logout: () => void;
   updateProfile: (data: { name?: string; email?: string; avatar?: string | null }) => Promise<void>;
   switchWorkspace: (workspaceId: number) => Promise<void>;
@@ -121,34 +120,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {}
   }, []);
 
-  const register = useCallback(async (name: string, email: string, password: string) => {
-    const res = await fetch(apiUrl("/auth/register"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, email, password }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: "Registration failed" }));
-      throw new Error(err.error || "Registration failed");
-    }
-    const data = await res.json();
-    localStorage.setItem("auth_token", data.token);
-    setToken(data.token);
-    setUser(data.user);
-
-    // Fetch workspaces after registration
-    try {
-      const meRes = await fetch(apiUrl("/auth/me"), {
-        headers: { Authorization: `Bearer ${data.token}` },
-      });
-      const meData = await meRes.json();
-      if (meData.workspaces?.length > 0) {
-        setWorkspaces(meData.workspaces);
-        setActiveWorkspace(meData.workspaces[0]);
-      }
-    } catch {}
-  }, []);
-
   const logout = useCallback(() => {
     const stored = localStorage.getItem("auth_token");
     if (stored) {
@@ -225,7 +196,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider value={{
       user, token, loading,
       workspaces, activeWorkspace,
-      login, register, logout, updateProfile,
+      login, logout, updateProfile,
       switchWorkspace, refreshWorkspaces, createWorkspace,
     }}>
       {children}
