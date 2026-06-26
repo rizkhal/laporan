@@ -7,8 +7,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { apiFetch } from "../lib/utils";
 import {
   ArrowLeft, ArrowRight, Bot, Check, ChevronDown, ChevronRight, Clipboard,
-  Download, ExternalLink, FileCode2, FileText, GitBranch, GitCommit,
-  Loader2, Pencil, Save, Settings2, Sparkles,
+  Columns2, Download, FileCode2, FileText, GitBranch, GitCommit,
+  Loader2, Monitor, Pencil, Save, Settings2, Sparkles,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { Label } from "../components/ui/label";
@@ -50,19 +50,13 @@ export default function CollectionDetail() {
   const [expandedCommit, setExpandedCommit] = useState<number | null>(null);
   const [reportDraft, setReportDraft] = useState("");
   const [reportMode, setReportMode] = useState<"split" | "preview">("split");
+  const [copied, setCopied] = useState(false);
   const [reportStyle, setReportStyle] = useState<string>("office");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<"collect" | "analyze" | "report" | "save" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [repoEditOpen, setRepoEditOpen] = useState(false);
   const [editRepoIds, setEditRepoIds] = useState<number[] | null>(null);
-  const [googleConnected, setGoogleConnected] = useState(false);
-  const [googleEmail, setGoogleEmail] = useState("");
-  const [exportingGdocs, setExportingGdocs] = useState(false);
-  const [gdocUrl, setGdocUrl] = useState<string | null>(null);
-  const [exportJobId, setExportJobId] = useState<number | null>(null);
-  const [exportProgress, setExportProgress] = useState<string>("");
-  const [exportProgressPct, setExportProgressPct] = useState(0);
   const { addToast } = useToast();
 
   async function loadAll() {
@@ -84,7 +78,6 @@ export default function CollectionDetail() {
       setReport(reportData);
       setReportDraft(reportData?.content || "");
       if (reportData?.style) setReportStyle(reportData.style);
-      if (reportData?.googleDocUrl) setGdocUrl(reportData.googleDocUrl);
       if (!selectedRepo) {
         const firstRepo = collectionData?.repoIds
           ? repoData.find((r) => collectionData.repoIds?.includes(r.id))
@@ -98,12 +91,10 @@ export default function CollectionDetail() {
     } finally {
       setLoading(false);
     }
-    checkGoogleStatus();
   }
 
   useEffect(() => {
     loadAll();
-    checkGoogleStatus();
   }, [collectionId]);
 
   async function runAction(action: "collect" | "analyze" | "report") {
@@ -175,107 +166,7 @@ export default function CollectionDetail() {
     URL.revokeObjectURL(url);
   }
 
-  async function checkGoogleStatus() {
-    try {
-      const res = await apiFetch<{ connected: boolean; email?: string }>("/integrations/google/status");
-      setGoogleConnected(res.connected);
-      if (res.email) setGoogleEmail(res.email);
-      if (res.connected && report?.googleDocUrl) {
-        setGdocUrl(report.googleDocUrl);
-      }
-    } catch {}
-  }
 
-  async function exportToGoogleDocs() {
-    if (!report) return;
-    try {
-      setExportingGdocs(true);
-      setExportProgress("Memulai...");
-      setExportProgressPct(0);
-
-      // Check if already connected
-      const status = await apiFetch<{ connected: boolean; authUrl?: string }>("/integrations/google/status");
-      if (!status.connected) {
-        // Get auth URL and redirect
-        const auth = await apiFetch<{ authUrl: string }>("/integrations/google/auth-url");
-        window.open(auth.authUrl, "_blank", "width=600,height=700");
-        addToast({ type: "info", title: "Google authorization opened", description: "Complete the authorization in the new window, then come back and click export again." });
-        setExportingGdocs(false);
-        return;
-      }
-
-      // Connected — queue export job
-      setExportProgress("Mengantrekan export...");
-      const result = await apiFetch<{ jobId: number; status: string; message: string }>(
-        `/reports/${report.id}/export/google-docs`,
-        { method: "POST" }
-      );
-
-      setExportJobId(result.jobId);
-
-      // Poll for completion
-      const pollInterval = setInterval(async () => {
-        try {
-          const jobStatus = await apiFetch<{
-            jobId?: number;
-            status: string;
-            progress?: number;
-            message?: string;
-            error?: string;
-            hasExport?: boolean;
-            documentUrl?: string;
-          }>(`/reports/${report.id}/export/status`);
-
-          if (jobStatus.status === "completed") {
-            clearInterval(pollInterval);
-            setExportingGdocs(false);
-            setExportProgress("Selesai!");
-            setExportProgressPct(100);
-
-            if (jobStatus.documentUrl) {
-              setGdocUrl(jobStatus.documentUrl);
-              setReport((prev) => prev ? { ...prev, googleDocUrl: jobStatus.documentUrl } : prev);
-            }
-
-            addToast({
-              type: "success",
-              title: "Google Docs document created",
-              description: "Your report has been exported to Google Docs.",
-            });
-          } else if (jobStatus.status === "failed") {
-            clearInterval(pollInterval);
-            setExportingGdocs(false);
-            setExportProgress("Gagal");
-            addToast({ type: "error", title: "Export failed", description: jobStatus.error || "Unknown error" });
-          } else if (jobStatus.status === "not_found" || jobStatus.status === "queued") {
-            setExportProgress("Menunggu giliran...");
-            setExportProgressPct(0);
-          } else {
-            setExportProgress(jobStatus.message || "Memproses...");
-            setExportProgressPct(jobStatus.progress || 0);
-          }
-        } catch (pollErr: any) {
-          // Ignore polling errors temporarily
-        }
-      }, 2000);
-
-      // Clean up polling after 5 minutes
-      setTimeout(() => clearInterval(pollInterval), 300000);
-    } catch (err: any) {
-      setExportingGdocs(false);
-      if (err.message?.includes("not connected")) {
-        const auth = await apiFetch<{ authUrl: string }>("/integrations/google/auth-url");
-        window.open(auth.authUrl, "_blank", "width=600,height=700");
-        addToast({ type: "info", title: "Connect your Google account", description: "Complete the authorization in the new window." });
-      } else if (err.message?.includes("expired")) {
-        const auth = await apiFetch<{ authUrl: string }>("/integrations/google/auth-url");
-        window.open(auth.authUrl, "_blank", "width=600,height=700");
-        addToast({ type: "info", title: "Google connection expired", description: "Please reconnect your Google account." });
-      } else {
-        addToast({ type: "error", title: "Export failed", description: err.message });
-      }
-    }
-  }
 
   const repoMap = useMemo(() => new Map(repos.map((repo) => [repo.id, repo])), [repos]);
   const selectedCommits = commits.filter((commit) => !selectedRepo || commit.repoId === selectedRepo);
@@ -478,23 +369,9 @@ export default function CollectionDetail() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div><h2 className="font-semibold tracking-[-0.02em]">Report editor</h2><p className="mt-0.5 text-xs text-muted-foreground">{report.isEdited ? "Edited manually" : "Generated from analysis"}</p></div>
                 <div className="flex flex-wrap gap-2">
-                  <Button size="sm" variant="outline" onClick={() => setReportMode((mode) => mode === "split" ? "preview" : "split")}><ExternalLink /> {reportMode === "split" ? "Preview only" : "Split view"}</Button>
-                  <Button size="sm" variant="outline" onClick={() => navigator.clipboard.writeText(reportDraft)}><Clipboard /> Copy</Button>
+                  <Button size="sm" variant="outline" onClick={() => setReportMode((mode) => mode === "split" ? "preview" : "split")}>{reportMode === "split" ? <Monitor className="size-3.5" /> : <Columns2 className="size-3.5" />} {reportMode === "split" ? "Preview only" : "Split view"}</Button>
+                  <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(reportDraft); setCopied(true); setTimeout(() => setCopied(false), 2000); }}>{copied ? <Check className="size-3.5 text-success-foreground" /> : <Clipboard />} {copied ? "Copied!" : "Copy"}</Button>
                   <Button size="sm" variant="outline" onClick={exportMarkdown}><Download /> Markdown</Button>
-                  {googleConnected ? (
-                    <>
-                      <Button size="sm" variant="outline" onClick={exportToGoogleDocs} disabled={exportingGdocs}>
-                        {exportingGdocs ? <Loader2 className="animate-spin" /> : <FileText />} {gdocUrl ? "Re-export" : "Google Docs"}
-                      </Button>
-                      {gdocUrl && (
-                        <Button size="sm" variant="outline" onClick={() => window.open(gdocUrl, "_blank")}><ExternalLink /> Open in Docs</Button>
-                      )}
-                    </>
-                  ) : (
-                    <Button size="sm" variant="outline" onClick={exportToGoogleDocs} disabled={exportingGdocs}>
-                      {exportingGdocs ? <Loader2 className="animate-spin" /> : <ExternalLink />} Export to Google Docs
-                    </Button>
-                  )}
                   <Button size="sm" onClick={saveReport} disabled={busy === "save" || reportDraft === report.content}>{busy === "save" ? <Loader2 className="animate-spin" /> : <Save />} Save</Button>
                 </div>
               </div>
@@ -619,12 +496,51 @@ function renderMarkdown(content: string) {
   const elements: React.ReactNode[] = [];
   let inCodeBlock = false;
   let codeBlockContent: string[] = [];
+  let tableRows: string[][] | null = null;
+
+  function flushTable() {
+    if (!tableRows || tableRows.length < 2) {
+      tableRows = null;
+      return;
+    }
+    // Second row is the separator
+    const headerCells = tableRows[0];
+    const bodyRows = tableRows.slice(2);
+    const colCount = headerCells.length;
+
+    elements.push(
+      <div key={`table-${elements.length}`} className="my-4 w-full overflow-x-auto">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="border-b border-border bg-muted/50">
+              {headerCells.map((cell, ci) => (
+                <th key={ci} className="whitespace-nowrap px-3 py-2 text-left text-xs font-semibold text-muted-foreground">{inlineMarkdown(cell.trim())}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {bodyRows.map((row, ri) => (
+              <tr key={ri} className="border-b border-border last:border-b-0 hover:bg-muted/25">
+                {Array.from({ length: colCount }).map((_, ci) => (
+                  <td key={ci} className={`px-3 py-1.5 text-xs ${ci === 0 ? "font-medium text-foreground" : "text-muted-foreground"} ${ci > 0 && ci < colCount - 1 ? "whitespace-nowrap" : ""}`}>
+                    {inlineMarkdown(row[ci]?.trim() || "")}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>,
+    );
+    tableRows = null;
+  }
 
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index];
 
     // Code block toggle
     if (line.trim().startsWith("```")) {
+      flushTable();
       if (inCodeBlock) {
         elements.push(<pre key={`code-${index}`} className="my-4 overflow-x-auto rounded-xl border bg-muted/50 p-4 font-mono text-[11px] leading-5 dark:bg-black/20"><code>{codeBlockContent.join("\n")}</code></pre>);
         codeBlockContent = [];
@@ -642,24 +558,45 @@ function renderMarkdown(content: string) {
     // Check for special markers first
     const trimmed = line.trim();
     if (trimmed === "<!-- GOOGLE_DOCS_TOC -->") {
-      elements.push(<div key={index} className="rounded-lg border border-dashed border-muted-foreground/30 bg-muted/30 px-4 py-2 text-center text-xs text-muted-foreground italic">[Daftar isi otomatis akan dibuat saat export ke Google Docs]</div>);
+      flushTable();
+      // Skip silently — TOC is only for Google Docs export
       continue;
     }
     if (trimmed === "<!-- PAGE_BREAK -->") {
+      flushTable();
       elements.push(<div key={index} className="my-4 flex items-center gap-2 text-xs text-muted-foreground/50"><hr className="flex-1 border-dashed border-muted-foreground/20" /><span className="italic">Page break</span><hr className="flex-1 border-dashed border-muted-foreground/20" /></div>);
       continue;
     }
 
     // Horizontal rule
     if (line.trim() === "---") {
+      flushTable();
       elements.push(<hr key={index} className="my-6 border-border" />);
       continue;
     }
 
     // Empty line
     if (!line.trim()) {
+      flushTable();
       elements.push(<div key={index} className="h-3" />);
       continue;
+    }
+
+    // Table row detection
+    if (line.trim().startsWith("|") && line.trim().endsWith("|")) {
+      const pipeRe = /(?:\|([^|]*)\|)/g;
+      let match;
+      const cells: string[] = [];
+      // Use a simpler split approach
+      const parts = line.trim().split("|").filter((_, i, arr) => i > 0 && i < arr.length - 1);
+      tableRows = tableRows || [];
+      tableRows.push(parts.map(p => p.trim()));
+      continue;
+    }
+
+    // Not a table row — flush any pending table
+    if (tableRows) {
+      flushTable();
     }
 
     // H1 with bold: `# **text**`
@@ -672,6 +609,12 @@ function renderMarkdown(content: string) {
     // H1
     if (line.startsWith("# ") && !line.startsWith("## ")) {
       elements.push(<h1 key={index}>{inlineMarkdown(line.slice(2))}</h1>);
+      continue;
+    }
+
+    // H4 (####)
+    if (line.startsWith("#### ")) {
+      elements.push(<h4 key={index} className="scroll-m-20 text-sm font-semibold tracking-tight text-muted-foreground">{inlineMarkdown(line.slice(5))}</h4>);
       continue;
     }
 
@@ -708,15 +651,20 @@ function renderMarkdown(content: string) {
       const depth = Math.floor(indent.length / 2);
       elements.push(
         <div key={index} className={`flex gap-2 ${depth > 0 ? (depth > 1 ? "ml-12" : "ml-6") : ""}`}>
-          <span className="mt-px shrink-0 text-muted-foreground">{depth > 0 ? "◦" : "•"}</span>
+          <span className="mt-px shrink-0 text-muted-foreground">{depth > 0 ? "\u02d9" : "\u2022"}</span>
           <span>{inlineMarkdown(text)}</span>
         </div>,
       );
       continue;
     }
 
-    // Regular paragraph — but check if it starts with `**` (bold lead-in for nested items)
+    // Regular paragraph
     elements.push(<p key={index}>{inlineMarkdown(line)}</p>);
+  }
+
+  // Flush any remaining table
+  if (tableRows) {
+    flushTable();
   }
 
   return elements;

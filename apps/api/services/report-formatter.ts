@@ -719,10 +719,10 @@ function renderSections(sections: SectionData[]): string {
         const bukti = item.bukti || item.evidence || [];
         if (bukti.length > 0) {
           parts.push(`Bukti: ${bukti.map((b: any) => {
-            const hash = (b.hashCommit || b.commitHash || "").slice(0, 8);
-            const file = b.berkas || b.file || "";
-            return `${hash} — ${file}`;
-          }).join("; ")}`);
+              const hash = (b.hashCommit || b.commitHash || "").slice(0, 8);
+              const file = b.berkas || b.file || "";
+              return `\`${hash}\` — \`${file}\``;
+            }).join("; ")}`);
           parts.push("");
         }
 
@@ -741,7 +741,7 @@ function renderSections(sections: SectionData[]): string {
         itemIndex++;
       }
 
-      parts.push(`Ringkasan: ${repo.totalCommits} commit, +${repo.totalInsertions}/-${repo.totalDeletions} perubahan`);
+      parts.push(`Ringkasan: ${repo.totalCommits} commit, \`+${repo.totalInsertions}/-${repo.totalDeletions}\` perubahan`);
       parts.push("");
       repoIndex++;
     }
@@ -897,7 +897,7 @@ function generateLampiranB(
       parts.push(`**Tanggal:** ${new Date(c.date).toLocaleDateString("id-ID")}`);
       parts.push(`**Author:** ${c.authorName}`);
       parts.push(`**Pesan:** ${c.message}`);
-      parts.push(`**Perubahan:** +${c.insertions}/-${c.deletions} baris di ${c.filesChanged} berkas`);
+      parts.push(`**Perubahan:** \`+${c.insertions}/-${c.deletions}\` baris di ${c.filesChanged} berkas`);
       parts.push("");
 
       if (relatedItems.length > 0) {
@@ -913,13 +913,8 @@ function generateLampiranB(
       try { changedFiles = JSON.parse(c.changedFiles || "[]"); } catch {}
       if (changedFiles.length > 0) {
         parts.push("**Berkas yang Diubah:**");
-        const fileLimit = 15;
-        const displayFiles = changedFiles.slice(0, fileLimit);
-        for (const f of displayFiles) {
-          parts.push(`${f}`);
-        }
-        if (changedFiles.length > fileLimit) {
-          parts.push(`...dan ${changedFiles.length - fileLimit} berkas lainnya`);
+        for (const f of changedFiles) {
+          parts.push('`' + f + '`');
         }
         parts.push("");
       }
@@ -1006,8 +1001,8 @@ function generateLampiranC(
     for (const [file, stats] of sortedFiles) {
       const relatedItems = workItemFileMap.get(file);
       const itemStr = relatedItems ? relatedItems.join(", ") : "-";
-      const changesDisplay = stats.changes || `${stats.count}x`;
-      parts.push(`| \`${file}\` | ${changesDisplay} | ${itemStr} |`);
+      const changesDisplay = stats.changes ? '`' + stats.changes + '`' : '`' + stats.count + 'x' + '`';
+      parts.push('| `' + file + '` | ' + changesDisplay + ' | ' + itemStr + ' |');
     }
 
     parts.push("");
@@ -1255,14 +1250,14 @@ function generateLampiranE(
           // Find the full commit to show its message
           const match = allCommits.find(c => c.hash.toLowerCase().startsWith(hash));
           const message = match ? match.message.substring(0, 80) : "(tidak ditemukan)";
-          parts.push(`${hash} — ${message}`);
+          parts.push('`' + hash + '` — ' + message);
         }
         parts.push("");
 
         parts.push("**Berkas Terkait:**");
         const uniqueFiles = [...new Set(bukti.map(b => { const raw = b as any; return raw.berkas || raw.file || ""; }).filter(Boolean))];
         for (const f of uniqueFiles) {
-          parts.push(f);
+          parts.push('`' + f + '`');
         }
         parts.push("");
       } else {
