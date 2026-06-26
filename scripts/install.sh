@@ -153,16 +153,18 @@ run_with_spinner "Installing dependencies..." npm install
 if [[ -f "$INSTALL_DIR/apps/api/.env" ]]; then
   ok "Environment file exists (skipping)"
 else
-  # Redirect stdin to terminal for interactive prompts when piped
+  # Prompt for ports only when running directly (stdin is a terminal)
+  if [[ -t 0 ]]; then
+    printf "  Backend port [${BACKEND_PORT}]: " && read -r BACKEND_PORT_INPUT
+    [[ -n "$BACKEND_PORT_INPUT" ]] && BACKEND_PORT="$BACKEND_PORT_INPUT"
+    printf "  Frontend port [${FRONTEND_PORT}]: " && read -r FRONTEND_PORT_INPUT
+    [[ -n "$FRONTEND_PORT_INPUT" ]] && FRONTEND_PORT="$FRONTEND_PORT_INPUT"
+  fi
+
+  # Redirect stdin to terminal for interactive prompts when piped via curl
   if [[ ! -t 0 ]]; then
     exec </dev/tty
   fi
-
-  # Prompt for ports (with defaults)
-  printf "  Backend port [${BACKEND_PORT}]: " && read -r BACKEND_PORT_INPUT
-  [[ -n "$BACKEND_PORT_INPUT" ]] && BACKEND_PORT="$BACKEND_PORT_INPUT"
-  printf "  Frontend port [${FRONTEND_PORT}]: " && read -r FRONTEND_PORT_INPUT
-  [[ -n "$FRONTEND_PORT_INPUT" ]] && FRONTEND_PORT="$FRONTEND_PORT_INPUT"
 
   if [[ -z "$ADMIN_EMAIL" ]]; then
     printf "  Admin email: " && read -r ADMIN_EMAIL
