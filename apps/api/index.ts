@@ -11,7 +11,7 @@ const [{ Hono }, { cors }, { HTTPException }, { serve }, { reposRouter },
   { collectionsRouter }, { settingsRouter }, { reportsRouter },
   { analysesRouter }, { collectionDetailRouter }, { authRouter },
   { workspacesRouter }, { jobsRouter }, { runMigration },
-  { integrationsRouter }, { categoriesRouter }] = await Promise.all([
+  { integrationsRouter }] = await Promise.all([
   import("hono"),
   import("hono/cors"),
   import("hono/http-exception"),
@@ -27,7 +27,6 @@ const [{ Hono }, { cors }, { HTTPException }, { serve }, { reposRouter },
   import("./routes/jobs"),
   import("./db/migrate-workspaces"),
   import("./routes/integrations"),
-  import("./routes/categories"),
 ]);
 
 // Run migration on startup (idempotent - safe to run every time)
@@ -62,7 +61,6 @@ app.route("/api/auth", authRouter);
 app.route("/api/workspaces", workspacesRouter);
 app.route("/api/jobs", jobsRouter);
 app.route("/api/integrations", integrationsRouter);
-app.route("/api/categories", categoriesRouter);
 
 app.get("/api/health", (c) => c.json({ status: "ok" }));
 

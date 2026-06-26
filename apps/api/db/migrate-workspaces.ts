@@ -284,35 +284,6 @@ export function runMigration(): void {
     } catch (err: any) {
       console.log(`  ⚠️ Reports google_doc_id migration skipped: ${err.message}`);
     }
-
-    // 15. Create categories table
-    try {
-      sqlite!.exec(`
-        CREATE TABLE IF NOT EXISTS categories (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-          name TEXT NOT NULL,
-          color TEXT NOT NULL DEFAULT '#6366f1',
-          created_at TEXT NOT NULL DEFAULT (datetime('now')),
-          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-      `);
-      console.log("  → Created categories table");
-    } catch (err: any) {
-      console.log(`  ⚠️ Categories table creation skipped: ${err.message}`);
-    }
-
-    // 16. Add category_id column to collections
-    try {
-      const collCols = sqlite!.prepare("PRAGMA table_info(collections)").all() as any[];
-      const hasCategoryId = collCols.some((c: any) => c.name === "category_id");
-      if (!hasCategoryId) {
-        sqlite!.exec("ALTER TABLE collections ADD COLUMN category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL;");
-        console.log("  → Added category_id column to collections");
-      }
-    } catch (err: any) {
-      console.log(`  ⚠️ Collections category_id migration skipped: ${err.message}`);
-    }
 } catch (err: any) {
   console.error("❌ Workspace migration error:", err.message);
 } finally {
