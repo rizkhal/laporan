@@ -14,7 +14,7 @@
 #     bash
 #
 # ═══════════════════════════════════════════════════════════════
-set -euo pipefail
+set -uo pipefail
 
 # ── Defaults ──
 INSTALL_DIR="${INSTALL_DIR:-$(pwd)/laporan}"
@@ -50,14 +50,22 @@ spinner() {
   printf "\r${GREEN} ✓ ${NC}%s\n" "$msg"
 }
 
+LOG="$INSTALL_DIR/install.log"
+
 run_with_spinner() {
   local msg=$1
   shift
-  ("$@" &>/dev/null) &
+  ("$@" >> "$LOG" 2>&1) &
   local pid=$!
   spinner "$pid" "$msg"
   wait "$pid"
-  return $?
+  local rc=$?
+  if [[ $rc -ne 0 ]]; then
+    printf "\r${RED} ✗ ${NC}%s (see $LOG for details)\n" "$msg"
+    tail -20 "$LOG"
+    return $rc
+  fi
+  return 0
 }
 
 # ── Sanity checks ──
@@ -130,7 +138,7 @@ if [[ -d "$INSTALL_DIR" ]]; then
     cd "$INSTALL_DIR"
     git fetch origin "$BRANCH"
     git reset --hard "origin/$BRANCH"
-    cd "$OLDPWD"
+    cd "${OLDPWD:-.}"
   else
     err "$INSTALL_DIR exists but is not a git repository."
     err "Remove it first: rm -rf $INSTALL_DIR"
