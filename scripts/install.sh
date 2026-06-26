@@ -5,10 +5,10 @@
 # ═══════════════════════════════════════════════════════════════
 #
 # Usage:
-#   curl -fsSL https://get-laporan.rizkal.space | bash
+#   curl -fsSL https://raw.githubusercontent.com/rizkhal/laporan/master/scripts/install.sh | bash
 #
 # Or with environment variables for non-interactive setup:
-#   curl -fsSL https://get-laporan.rizkal.space | \
+#   curl -fsSL https://raw.githubusercontent.com/rizkhal/laporan/master/scripts/install.sh | \
 #     ADMIN_EMAIL="admin@example.com" \
 #     ADMIN_PASSWORD="change-me-123" \
 #     bash

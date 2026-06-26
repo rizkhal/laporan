@@ -260,15 +260,11 @@ export default function Docs() {
             <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
               <li className="flex items-start gap-2">
                 <Check className="mt-0.5 size-4 shrink-0 text-primary" />
-                A Linux server (Ubuntu 22.04+, Debian 12+, or CentOS 9+)
+                Linux machine (Ubuntu 22.04+, Debian 12+, or CentOS 9+)
               </li>
               <li className="flex items-start gap-2">
                 <Check className="mt-0.5 size-4 shrink-0 text-primary" />
                 Root or sudo access
-              </li>
-              <li className="flex items-start gap-2">
-                <Check className="mt-0.5 size-4 shrink-0 text-primary" />
-                A domain or subdomain pointing to the server
               </li>
               <li className="flex items-start gap-2">
                 <Check className="mt-0.5 size-4 shrink-0 text-primary" />
@@ -277,42 +273,34 @@ export default function Docs() {
             </ul>
 
             <h3 className="mt-8 text-base font-semibold">One-command install</h3>
-            <CodeBlock code={`curl -fsSL https://get-laporan.rizkal.space | bash`} lang="bash" />
+            <CodeBlock code={`curl -fsSL https://raw.githubusercontent.com/rizkhal/laporan/master/scripts/install.sh | bash`} lang="bash" />
 
             <div className="mt-4 rounded-xl border border-border bg-card p-4 text-sm leading-6 text-muted-foreground">
               <p className="font-medium text-foreground">What this does</p>
-              <ol className="mt-2 space-y-1.5 list-decimal pl-5">
-                <li>Checks for Node.js 18+ and installs it if missing</li>
-                <li>Installs PM2 globally for process management</li>
-                <li>Clones the repository to <InlineCode>/opt/laporan</InlineCode></li>
-                <li>Installs dependencies and builds the frontend</li>
-                <li>Creates the SQLite database and runs schema migration</li>
-                <li>Starts the API server with PM2</li>
-                <li>Configures PM2 to restart on server reboot</li>
-              </ol>
-            </div>
+  <ol className="mt-2 space-y-1.5 list-decimal pl-5">
+    <li>Checks for Node.js 18+ and installs it if missing</li>
+    <li>Clones the repository to <InlineCode>./laporan</InlineCode></li>
+    <li>Installs dependencies</li>
+    <li>Prompts for admin email and password</li>
+    <li>Creates admin account automatically</li>
+    <li>Shows instructions to run <InlineCode>npm run dev</InlineCode></li>
+  </ol>
+</div>
 
             <h3 className="mt-8 text-base font-semibold">Post-install steps</h3>
             <ol className="mt-3 space-y-3 text-sm text-muted-foreground list-decimal pl-5">
               <li>
-                <p className="font-medium text-foreground">Configure environment</p>
-                <p>Edit <InlineCode>/opt/laporan/apps/api/.env</InlineCode> and set your LLM API key and frontend URL.</p>
-                <CodeBlock code={`# /opt/laporan/apps/api/.env
-PORT=3000
-FRONTEND_URL=https://laporan.yourdomain.com
-
-# LLM provider (OpenAI-compatible)
-LLM_BASE_URL=https://api.openai.com/v1
-LLM_API_KEY=sk-your-key-here
-LLM_MODEL=gpt-4o-mini`} lang="bash" />
+                <p className="font-medium text-foreground">Start the app</p>
+                <CodeBlock code={`cd laporan
+npm run dev`} lang="bash" />
               </li>
               <li>
-                <p className="font-medium text-foreground">Set up reverse proxy</p>
-                <p>Configure Nginx or Caddy to proxy <InlineCode>/api/*</InlineCode> to <InlineCode>localhost:3000</InlineCode> and serve the frontend. See the <a href="#deployment" className="text-primary underline underline-offset-2">production deployment</a> section below.</p>
+                <p className="font-medium text-foreground">Open the app</p>
+                <p>Access the frontend at <InlineCode>http://localhost:4321</InlineCode> and log in with the admin credentials you set during install.</p>
               </li>
               <li>
-                <p className="font-medium text-foreground">Restart the server</p>
-                <CodeBlock code={`pm2 restart laporan-api`} lang="bash" />
+                <p className="font-medium text-foreground">Add your LLM key</p>
+                <p>Go to Settings → LLM Providers and configure your API key, base URL, and model.</p>
               </li>
             </ol>
           </section>
@@ -326,43 +314,28 @@ LLM_MODEL=gpt-4o-mini`} lang="bash" />
               If you prefer to install step by step, or if the quick start script doesn't fit your environment.
             </p>
 
-            <h3 className="mt-8 text-base font-semibold">1. Install dependencies</h3>
-            <CodeBlock code={`# Node.js 18+ (Ubuntu/Debian)
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo bash -
-sudo apt-get install -y nodejs git
+            <h3 className="mt-8 text-base font-semibold">1. Clone the repository</h3>
+            <CodeBlock code={`git clone https://github.com/rizkhal/laporan.git
+cd laporan`} lang="bash" />
 
-# PM2 globally
-npm install -g pm2`} lang="bash" />
-
-            <h3 className="mt-8 text-base font-semibold">2. Clone the repository</h3>
-            <CodeBlock code={`git clone https://github.com/rizkhal/laporan.rizkal.space /opt/laporan
-cd /opt/laporan`} lang="bash" />
-
-            <h3 className="mt-8 text-base font-semibold">3. Install dependencies</h3>
-            <div className="rounded-xl border border-border bg-amber-50/50 p-4 text-sm leading-6 text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
-              <p className="font-medium">Important</p>
-              <p className="mt-1">If you cloned from a macOS machine, remove <InlineCode>node_modules</InlineCode> and <InlineCode>package-lock.json</InlineCode> before installing on Linux. Platform-specific binaries differ between OS.</p>
-            </div>
+            <h3 className="mt-8 text-base font-semibold">2. Install dependencies</h3>
             <CodeBlock code={`rm -rf node_modules package-lock.json
 npm install`} lang="bash" />
 
-            <h3 className="mt-8 text-base font-semibold">4. Build the frontend</h3>
-            <CodeBlock code={`npm run build -w apps/web`} lang="bash" />
+            <h3 className="mt-8 text-base font-semibold">3. Configure environment</h3>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">Create <InlineCode>apps/api/.env</InlineCode> and set the required variables:</p>
+            <CodeBlock code={`PORT=1234
+FRONTEND_URL=http://localhost:4321
+NODE_ENV=development`} lang="bash" />
 
-            <h3 className="mt-8 text-base font-semibold">5. Configure environment</h3>
-            <CodeBlock code={`cp apps/api/.env.example apps/api/.env
-# Edit with your settings
-nano apps/api/.env`} lang="bash" />
+            <h3 className="mt-8 text-base font-semibold">4. Setup the database</h3>
+            <CodeBlock code={`npm run db:push -w apps/api`} lang="bash" />
 
-            <h3 className="mt-8 text-base font-semibold">6. Setup the database</h3>
-            <CodeBlock code={`mkdir -p apps/api/db
-npm run db:push -w apps/api`} lang="bash" />
-
-            <h3 className="mt-8 text-base font-semibold">7. Start with PM2</h3>
-            <CodeBlock code={`pm2 start ecosystem.config.cjs
-pm2 save
-# Optional: enable auto-start on boot
-pm2 startup`} lang="bash" />
+            <h3 className="mt-8 text-base font-semibold">5. Run the app</h3>
+            <CodeBlock code={`npm run dev`} lang="bash" />
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              The API starts on <InlineCode>http://localhost:1234</InlineCode> and the frontend on <InlineCode>http://localhost:4321</InlineCode>.
+            </p>
           </section>
 
           <hr className="my-16 border-border" />
@@ -388,7 +361,7 @@ pm2 startup`} lang="bash" />
                   <tr>
                     <td className="px-4 py-3 font-mono text-[13px] text-foreground">PORT</td>
                     <td className="px-4 py-3">No</td>
-                    <td className="px-4 py-3 font-mono text-[13px]">3000</td>
+                    <td className="px-4 py-3 font-mono text-[13px]">1234</td>
                     <td className="px-4 py-3">Internal server port</td>
                   </tr>
                   <tr>
@@ -396,24 +369,6 @@ pm2 startup`} lang="bash" />
                     <td className="px-4 py-3">Yes</td>
                     <td className="px-4 py-3 font-mono text-[13px]">—</td>
                     <td className="px-4 py-3">Public URL of your frontend (used for CORS)</td>
-                  </tr>
-                  <tr>
-                    <td className="px-4 py-3 font-mono text-[13px] text-foreground">LLM_BASE_URL</td>
-                    <td className="px-4 py-3">No</td>
-                    <td className="px-4 py-3 font-mono text-[13px]">https://api.openai.com/v1</td>
-                    <td className="px-4 py-3">OpenAI-compatible API base URL</td>
-                  </tr>
-                  <tr>
-                    <td className="px-4 py-3 font-mono text-[13px] text-foreground">LLM_API_KEY</td>
-                    <td className="px-4 py-3">No*</td>
-                    <td className="px-4 py-3 font-mono text-[13px]">—</td>
-                    <td className="px-4 py-3">LLM API key (*required for analysis)</td>
-                  </tr>
-                  <tr>
-                    <td className="px-4 py-3 font-mono text-[13px] text-foreground">LLM_MODEL</td>
-                    <td className="px-4 py-3">No</td>
-                    <td className="px-4 py-3 font-mono text-[13px]">gpt-4o-mini</td>
-                    <td className="px-4 py-3">Model identifier</td>
                   </tr>
                   <tr>
                     <td className="px-4 py-3 font-mono text-[13px] text-foreground">DATABASE_URL</td>
@@ -430,7 +385,6 @@ pm2 startup`} lang="bash" />
                 </tbody>
               </table>
             </div>
-            <p className="mt-3 text-xs text-muted-foreground">* LLM configuration can also be set per workspace from the Settings page in the app.</p>
           </section>
 
           <hr className="my-16 border-border" />
@@ -717,134 +671,6 @@ pm2 startup`} lang="bash" />
 
           <hr className="my-16 border-border" />
 
-          {/* ── Deployment ── */}
-          <section data-section id="deployment">
-            <h2 className="text-2xl font-semibold tracking-[-0.03em]">Production Deployment</h2>
-            <p className="mt-4 max-w-2xl text-sm leading-6 text-muted-foreground">
-              For production use, you need a reverse proxy in front of the API server. Below are configurations
-              for common setups.
-            </p>
-
-            <h3 className="mt-8 text-base font-semibold">Nginx reverse proxy</h3>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              This configuration serves the frontend build directly from the filesystem and proxies API requests
-              to the backend. It assumes you have SSL certificates configured (e.g., via aaPanel or Certbot).
-            </p>
-            <CodeBlock code={`server {
-    listen 443 ssl http2;
-    server_name laporan.yourdomain.com;
-
-    # SSL certificate paths (adjust as needed)
-    ssl_certificate /path/to/fullchain.pem;
-    ssl_certificate_key /path/to/privkey.pem;
-
-    # Serve frontend static files
-    root /opt/laporan/apps/web/dist;
-    index index.html;
-
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    # Proxy API requests
-    location /api/ {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-
-        proxy_connect_timeout 60s;
-        proxy_read_timeout 120s;
-    }
-
-    # Increase body size for report data
-    client_max_body_size 10M;
-}`} lang="nginx" />
-
-            <h3 className="mt-8 text-base font-semibold">aaPanel setup</h3>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              If you use aaPanel, create a new website and configure the reverse proxy:
-            </p>
-            <ol className="mt-3 space-y-2 text-sm text-muted-foreground list-decimal pl-5">
-              <li>Create a new website in aaPanel</li>
-              <li>Go to Website → Reverse Proxy → Add Reverse Proxy</li>
-              <li>Set proxy name: <InlineCode>laporan-api</InlineCode></li>
-              <li>Target URL: <InlineCode>http://127.0.0.1:3000</InlineCode></li>
-              <li>In the advanced settings, add these proxy headers:
-                <ul className="mt-1 list-disc pl-5 text-muted-foreground">
-                  <li><InlineCode>Host</InlineCode> → <InlineCode>$host</InlineCode></li>
-                  <li><InlineCode>X-Real-IP</InlineCode> → <InlineCode>$remote_addr</InlineCode></li>
-                  <li><InlineCode>X-Forwarded-For</InlineCode> → <InlineCode>$proxy_add_x_forwarded_for</InlineCode></li>
-                  <li><InlineCode>X-Forwarded-Proto</InlineCode> → <InlineCode>$scheme</InlineCode></li>
-                </ul>
-              </li>
-              <li>Set the website root directory to <InlineCode>/opt/laporan/apps/web/dist</InlineCode></li>
-              <li>Set "Default document" to <InlineCode>index.html</InlineCode></li>
-              <li>Go to Website → Settings → "Pseudo Static" → Enable</li>
-            </ol>
-
-            <h3 className="mt-8 text-base font-semibold">PM2 process management</h3>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              The project includes an <InlineCode>ecosystem.config.cjs</InlineCode> file for PM2. The config file
-              in the repository has hardcoded paths — after cloning to your server, update the paths to match your
-              installation directory.
-            </p>
-            <CodeBlock code={`// /opt/laporan/ecosystem.config.cjs
-module.exports = {
-  apps: [{
-    name: "laporan-api",
-    cwd: "/opt/laporan",
-    script: "apps/api/src/index.ts",
-    interpreter: "/opt/laporan/node_modules/.bin/tsx",
-    instances: 1,
-    exec_mode: "fork",
-    autorestart: true,
-    env: {
-      NODE_ENV: "production",
-      PORT: 3000,
-    },
-  }],
-};`} lang="javascript" />
-
-            <h3 className="mt-8 text-base font-semibold">PM2 commands</h3>
-            <CodeBlock code={`# Start
-pm2 start ecosystem.config.cjs
-
-# Restart
-pm2 restart laporan-api
-
-# Stop
-pm2 stop laporan-api
-
-# View logs
-pm2 logs laporan-api
-
-# Monitor
-pm2 monit
-
-# Save process list (auto-restart on reboot)
-pm2 save
-
-# Enable startup script
-pm2 startup`} lang="bash" />
-
-            <h3 className="mt-8 text-base font-semibold">Platform binary notes</h3>
-            <div className="rounded-xl border border-border bg-amber-50/50 p-4 text-sm leading-6 text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
-              <p className="font-medium">For Linux servers</p>
-              <p className="mt-1">
-                If you're deploying from a macOS development machine, always run <InlineCode>rm -rf node_modules package-lock.json && npm install</InlineCode> on the Linux server.
-                Platform-specific binaries (esbuild, lightningcss, rollup) are compiled per-architecture and will not work cross-platform.
-              </p>
-            </div>
-          </section>
-
-          <hr className="my-16 border-border" />
-
           {/* ── Troubleshooting ── */}
           <section data-section id="troubleshooting">
             <h2 className="text-2xl font-semibold tracking-[-0.03em]">Troubleshooting</h2>
@@ -852,8 +678,8 @@ pm2 startup`} lang="bash" />
             <div className="mt-6 space-y-6">
               {[
                 {
-                  q: "Connection refused on port 3000",
-                  a: "Run <InlineCode>pm2 status</InlineCode> to check if the API is running. If it crashed, check logs with <InlineCode>pm2 logs laporan-api</InlineCode>. Common causes: missing <InlineCode>.env</InlineCode> file, missing database file, or port already in use.",
+                  q: "Connection refused on port 1234",
+                  a: "Check if the API server is running. Common causes: missing <InlineCode>.env</InlineCode> file, database not migrated (<InlineCode>npm run db:push -w apps/api</InlineCode>), or port already in use.",
                 },
                 {
                   q: "SSH key test fails",
@@ -861,7 +687,7 @@ pm2 startup`} lang="bash" />
                 },
                 {
                   q: "Clone operation fails",
-                  a: "Check that the repository URL is correct and accessible. If using SSH, verify the key is added to GitHub. If using HTTPS, the repository must be public or you need to configure a credential helper. Check <InlineCode>pm2 logs laporan-api</InlineCode> for the specific error.",
+                  a: "Check that the repository URL is correct and accessible. If using SSH, verify the key is added to GitHub. If using HTTPS, the repository must be public or you need to configure a credential helper.",
                 },
                 {
                   q: "No commits collected",
@@ -877,7 +703,7 @@ pm2 startup`} lang="bash" />
                 },
                 {
                   q: "How to reset the database",
-                  a: "Stop the API, delete the database file, and re-run the migration: <InlineCode>pm2 stop laporan-api && rm apps/api/db/dev.db && npm run db:push -w apps/api && pm2 start laporan-api</InlineCode>.",
+                  a: "Stop the API, delete the database file, and re-run the migration: <InlineCode>rm apps/api/db/dev.db && npm run db:push -w apps/api</InlineCode>.",
                 },
                 {
                   q: "Npm install fails on Linux",
@@ -956,7 +782,7 @@ pm2 startup`} lang="bash" />
           <span>laporan, monthly dev report &mdash; documentation</span>
           <div className="flex items-center gap-4">
             <a href="/" className="transition-colors hover:text-foreground">Home</a>
-            <DocLink href="https://github.com/rizkhal/laporan.rizkal.space">GitHub</DocLink>
+            <DocLink href="https://github.com/rizkhal/laporan">GitHub</DocLink>
           </div>
         </div>
       </footer>
