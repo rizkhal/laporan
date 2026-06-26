@@ -58,7 +58,6 @@ export const repositories = sqliteTable("repositories", {
   name: text("name").notNull(),
   localPath: text("local_path").notNull(),
   remoteUrl: text("remote_url").notNull(),
-  category: text("category").notNull().default("general"),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   authorNames: text("author_names").notNull(), // JSON array
   authorEmails: text("author_emails").notNull(), // JSON array

@@ -4,7 +4,6 @@ import { eq, and, or } from "drizzle-orm";
 import { cloneRepo, resolveRepoPath, pullRepo, cleanStaleClone } from "./git-clone";
 import { collectRepoForCollection } from "./git-collector";
 import { runAnalysisForRepo } from "./llm-analyzer";
-import { generateReport } from "./report-formatter";
 import { getStrategy } from "./report-strategies";
 import { killGitExec } from "./git-exec";
 import { exportToGoogleDocs } from "./google-docs-exporter";
@@ -54,35 +53,6 @@ export function createJob(
   ensureRunnerRunning();
 
   return result;
-}
-
-export function getActiveJobs(workspaceId: number) {
-  return db
-    .select()
-    .from(schema.jobs)
-    .where(
-      and(
-        eq(schema.jobs.workspaceId, workspaceId),
-        or(
-          eq(schema.jobs.status, "queued"),
-          eq(schema.jobs.status, "running"),
-        ),
-      ),
-    )
-    .all();
-}
-
-export function getWorkspaceJobs(workspaceId: number, status?: string) {
-  const conditions = [eq(schema.jobs.workspaceId, workspaceId)];
-  if (status) {
-    conditions.push(eq(schema.jobs.status, status as any));
-  }
-  return db
-    .select()
-    .from(schema.jobs)
-    .where(and(...conditions))
-    .orderBy(schema.jobs.createdAt)
-    .all();
 }
 
 // Track spawned process execIds per job, so they can be killed on cancel

@@ -172,31 +172,6 @@ export function assertOwnership(
 }
 
 /**
- * Assert the current user has at least the given role in the workspace.
- */
-export function assertRole(
-  c: Context,
-  userId: number,
-  workspaceId: number,
-  minRole: "member" | "admin" | "owner",
-): void {
-  const membership = db
-    .select()
-    .from(schema.workspaceMembers)
-    .where(
-      and(
-        eq(schema.workspaceMembers.workspaceId, workspaceId),
-        eq(schema.workspaceMembers.userId, userId),
-      ),
-    )
-    .get();
-
-  if (!membership || !hasMinRole(membership.role, minRole)) {
-    throw new HTTPException(403, { message: "Insufficient permissions" });
-  }
-}
-
-/**
  * Generate a URL-safe slug from a string.
  */
 export function slugify(text: string): string {

@@ -153,20 +153,6 @@ export function setupKnownHosts(workspaceId: number): void {
 }
 
 /**
- * Build GIT_SSH_COMMAND for a workspace's SSH key.
- */
-export function buildGitSshCommand(workspaceId: number): string {
-  const files = getKeyFilePaths(workspaceId);
-  if (!existsSync(files.privateKeyPath)) {
-    throw new Error("SSH private key not found for this workspace");
-  }
-  if (!existsSync(files.knownHostsPath)) {
-    setupKnownHosts(workspaceId);
-  }
-  return `ssh -i ${files.privateKeyPath} -o UserKnownHostsFile=${files.knownHostsPath} -o StrictHostKeyChecking=yes`;
-}
-
-/**
  * Build GIT_SSH_COMMAND for a workspace's SSH key, allowing lenient checking
  * for development environments.
  */

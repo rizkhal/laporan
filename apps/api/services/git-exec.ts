@@ -32,18 +32,6 @@ export function killGitExec(execId: string): boolean {
 }
 
 /**
- * Kill all tracked git processes (useful on shutdown).
- */
-export function killAllGitExecs(): void {
-  for (const [id, child] of childProcesses.entries()) {
-    try {
-      child.kill("SIGKILL");
-    } catch {}
-    childProcesses.delete(id);
-  }
-}
-
-/**
  * Execute a git command asynchronously using spawn.
  * Returns stdout, stderr, and exit code.
  * Does NOT block the event loop.

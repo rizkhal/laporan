@@ -188,60 +188,6 @@ export function getAllStrategies(): ReportStrategy[] {
   return Array.from(strategies.values());
 }
 
-// ── Upsert Report Helper ──
-
-// ── Generate Report via Strategy ──
-
-export async function generateReportViaStrategy(
-  collectionId: number,
-  workspaceId: number,
-  style: string = "office",
-): Promise<ReportResult> {
-  const strategy = getStrategy(style);
-  if (!strategy) {
-    throw new Error(`Unknown report style: "${style}". Available styles: ${getAllStrategies().map(s => s.id).join(", ")}`);
-  }
-
-  const result = await strategy.generate(collectionId, workspaceId);
-
-  // Persist the report
-  const collection = db
-    .select()
-    .from(schema.collections)
-    .where(eq(schema.collections.id, collectionId))
-    .get();
-
-  const existing = db
-    .select()
-    .from(schema.reports)
-    .where(eq(schema.reports.collectionId, collectionId))
-    .get();
-
-  if (existing) {
-    db.update(schema.reports)
-      .set({
-        content: result.content,
-        style,
-        title: collection?.title || "Report",
-        isEdited: false,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(schema.reports.id, existing.id))
-      .run();
-  } else {
-    db.insert(schema.reports)
-      .values({
-        collectionId,
-        title: collection?.title || "Report",
-        style,
-        content: result.content,
-      })
-      .run();
-  }
-
-  return result;
-}
-
 // ── Register built-in strategies ──
 
 import { simpleStrategy } from "./simple";
