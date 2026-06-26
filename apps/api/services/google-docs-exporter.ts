@@ -1,15 +1,14 @@
 /**
  * Google Docs Export Service
  *
- * Simplified entry point that orchestrates the export pipeline:
+ * Entry point that orchestrates the export pipeline:
  *   Markdown → AST → Chunks → Rate-Limited Worker → Google Docs Document
  *
- * Document creation uses the googleapis library (with proper OAuth2 token refresh),
- * then content insertion uses the chunked pipeline via raw API calls.
+ * All API calls use the googleapis library which handles OAuth2 token refresh
+ * transparently (no raw fetch() for authenticated requests).
  */
 
 import { google } from "googleapis";
-import { getAuthenticatedClient } from "./google-auth";
 import { runExportWorker, type ExportProgress } from "./google-docs-worker";
 import { parseDocument, printChunks } from "./google-docs-ast";
 
@@ -28,6 +27,22 @@ export interface ExportResult {
   documentUrl: string;
 }
 
+// ── OAuth2 Client Builder ──
+
+function createOAuth2Client() {
+  const clientId = process.env.GOOGLE_CLIENT_ID || "";
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET || "";
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI || "";
+
+  if (!clientId || !clientSecret || !redirectUri) {
+    throw new Error(
+      "Google OAuth not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REDIRECT_URI.",
+    );
+  }
+
+  return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+}
+
 // ── Worker State ──
 
 interface ExportJobState {
@@ -40,27 +55,36 @@ interface ExportJobState {
 const activeExports = new Map<string, ExportJobState>();
 
 /**
- * Export the report to Google Docs using the new chunked pipeline.
+ * Export the report to Google Docs using the chunked pipeline.
  *
- * This function:
- *   1. Authenticates with Google (refreshes token via googleapis OAuth2)
- *   2. Creates a new Google Docs document using googleapis library
- *   3. Parses the markdown into a structured AST
- *   4. Runs the rate-limited export worker (populates content via raw fetch)
- *   5. Returns the document ID and URL
+ * Flow:
+ *   1. Build OAuth2 client + refresh token
+ *   2. Create googleapis docs client (handles auth transparently)
+ *   3. Create a new Google Docs document
+ *   4. Parse markdown into structured AST chunks
+ *   5. Run rate-limited worker to populate content
+ *   6. Return document URL
  */
 export async function exportToGoogleDocs(config: ExportConfig): Promise<ExportResult> {
   const { accessToken, refreshToken, documentTitle, markdownContent, onProgress } = config;
 
   console.log(`📝 Starting Google Docs export: "${documentTitle}" (${markdownContent.length} chars)`);
 
-  // Step 1: Authenticate and refresh token using googleapis OAuth2 client
-  const { oauthClient, freshAccessToken } = await getAuthenticatedClient(accessToken, refreshToken);
+  // Step 1: Build authenticated OAuth2 client (googleapis handles refresh)
+  onProgress?.({ message: "Mengautentikasi...", progress: 2 });
 
-  // Step 2: Create document using googleapis library (handles auth properly)
+  const oauthClient = createOAuth2Client();
+  oauthClient.setCredentials({
+    access_token: accessToken,
+    refresh_token: refreshToken,
+  });
+
+  // Create docs client using the authenticated OAuth2 client
+  const docs = google.docs({ version: "v1", auth: oauthClient });
+
+  // Step 2: Create document using googleapis library
   onProgress?.({ message: "Membuat dokumen...", progress: 5 });
 
-  const docs = google.docs({ version: "v1", auth: oauthClient });
   const createResponse = await docs.documents.create({
     requestBody: { title: documentTitle },
   });
@@ -78,24 +102,21 @@ export async function exportToGoogleDocs(config: ExportConfig): Promise<ExportRe
   console.log(`📄 Document has ${ast.chunks.length} sections:`);
   printChunks(ast);
 
-  // Step 4: Run the export worker (uses raw fetch for content operations)
+  // Step 4: Run the export worker (uses the same docs client with OAuth2 refresh)
   const exportId = `export-${Date.now()}`;
 
   const result = await runExportWorker({
-    accessToken: freshAccessToken,
+    docsClient: docs,
     documentId,
     markdownContent,
     documentTitle,
     onProgress: (progress: ExportProgress) => {
-      // Track state for resume support
       activeExports.set(exportId, {
         documentId,
         totalChunks: progress.totalChunks,
         currentChunk: progress.currentChunk,
         chunkLabels: [],
       });
-
-      // Forward progress to caller
       onProgress?.({
         message: progress.message,
         progress: progress.progress,
@@ -103,7 +124,6 @@ export async function exportToGoogleDocs(config: ExportConfig): Promise<ExportRe
     },
   });
 
-  // Clean up state
   activeExports.delete(exportId);
 
   if (!result.success) {
@@ -120,15 +140,8 @@ export async function exportToGoogleDocs(config: ExportConfig): Promise<ExportRe
   };
 }
 
-/**
- * Get the state of an active export.
- * Used by the frontend to show progress.
- */
 export function getExportState(exportId: string): ExportJobState | undefined {
   return activeExports.get(exportId);
 }
 
-/**
- * Legacy export support: parse markdown into segments for preview use.
- */
 export { parseDocument } from "./google-docs-ast";
