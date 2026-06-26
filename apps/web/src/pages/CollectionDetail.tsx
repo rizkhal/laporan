@@ -23,7 +23,7 @@ interface Analysis {
   summary: string; impact: string; risks: string; nextSuggestions: string; isEdited: boolean; error: string;
 }
 interface Report { id: number; title: string; content: string; style?: string; isEdited: boolean; updatedAt?: string; googleDocUrl?: string; }
-interface Repo { id: number; name: string; category: string; }
+interface Repo { id: number; name: string; }
 interface LlmProvider { id: number; name: string; model: string; }
 
 function parseJson<T>(value: string | null | undefined, fallback: T): T {
@@ -261,7 +261,7 @@ export default function CollectionDetail() {
                   return (
                     <button key={repo.id} type="button" onClick={() => setSelectedRepo(repo.id)} className={`w-full rounded-xl p-3 text-left transition-colors ${selectedRepo === repo.id ? "bg-primary/8" : "hover:bg-muted"}`}>
                       <div className="flex items-center gap-2"><GitBranch className="size-3.5 text-muted-foreground" /><span className="truncate text-sm font-semibold">{repo.name}</span><span className="ml-auto font-mono text-xs">{repoCommits.length}</span></div>
-                      <div className="mt-2 flex gap-3 font-mono text-[10px] text-muted-foreground"><span className="text-success-foreground">+{insertions}</span><span className="text-destructive">-{deletions}</span><span>{repo.category}</span></div>
+                      <div className="mt-2 flex gap-3 font-mono text-[10px] text-muted-foreground"><span className="text-success-foreground">+{insertions}</span><span className="text-destructive">-{deletions}</span></div>
                     </button>
                   );
                 })}
@@ -399,7 +399,6 @@ export default function CollectionDetail() {
                   <label key={repo.id} className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-muted">
                     <input type="checkbox" checked={checked} onChange={() => setEditRepoIds((current) => current === null ? [repo.id] : checked ? current.filter((id) => id !== repo.id) : [...current, repo.id])} className="size-4 rounded border-input bg-card" />
                     <span className="text-sm">{repo.name}</span>
-                    <span className="ml-auto text-xs text-muted-foreground">{repo.category}</span>
                   </label>
                 );
               })}
