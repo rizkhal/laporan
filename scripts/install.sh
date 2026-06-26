@@ -20,7 +20,8 @@ set -euo pipefail
 INSTALL_DIR="${INSTALL_DIR:-$(pwd)/laporan}"
 REPO_URL="${REPO_URL:-https://github.com/rizkhal/laporan.git}"
 BRANCH="${BRANCH:-master}"
-PORT="${PORT:-3000}"
+BACKEND_PORT="${BACKEND_PORT:-1234}"
+FRONTEND_PORT="${FRONTEND_PORT:-4321}"
 
 ADMIN_NAME="${ADMIN_NAME:-Admin}"
 ADMIN_EMAIL="${ADMIN_EMAIL:-}"
@@ -120,9 +121,24 @@ fi
 ok "Node.js $(node -v) ready"
 
 # ═══════════════════════════════════════════════════════════════
-# 3 ── Clone repository
+# 3 ── Clone / update repository
 # ═══════════════════════════════════════════════════════════════
-run_with_spinner "Cloning repository..." git clone --depth=1 -b "$BRANCH" "$REPO_URL" "$INSTALL_DIR"
+if [[ -d "$INSTALL_DIR" ]]; then
+  warn "$INSTALL_DIR already exists."
+  if [[ -d "$INSTALL_DIR/.git" ]]; then
+    info "Pulling latest changes..."
+    cd "$INSTALL_DIR"
+    git fetch origin "$BRANCH"
+    git reset --hard "origin/$BRANCH"
+    cd "$OLDPWD"
+  else
+    err "$INSTALL_DIR exists but is not a git repository."
+    err "Remove it first: rm -rf $INSTALL_DIR"
+    exit 1
+  fi
+else
+  run_with_spinner "Cloning repository..." git clone --depth=1 -b "$BRANCH" "$REPO_URL" "$INSTALL_DIR"
+fi
 
 cd "$INSTALL_DIR"
 
@@ -132,12 +148,7 @@ cd "$INSTALL_DIR"
 run_with_spinner "Installing dependencies..." npm install
 
 # ═══════════════════════════════════════════════════════════════
-# 5 ── Build frontend
-# ═══════════════════════════════════════════════════════════════
-run_with_spinner "Building frontend..." npm run build
-
-# ═══════════════════════════════════════════════════════════════
-# 6 ── Configure environment
+# 5 ── Configure environment
 # ═══════════════════════════════════════════════════════════════
 if [[ -f "$INSTALL_DIR/apps/api/.env" ]]; then
   ok "Environment file exists (skipping)"
@@ -147,7 +158,11 @@ else
     exec </dev/tty
   fi
 
-  SERVER_IP=$(curl -4 -s ifconfig.me 2>/dev/null || curl -4 -s icanhazip.com 2>/dev/null || echo "localhost")
+  # Prompt for ports (with defaults)
+  printf "  Backend port [${BACKEND_PORT}]: " && read -r BACKEND_PORT_INPUT
+  [[ -n "$BACKEND_PORT_INPUT" ]] && BACKEND_PORT="$BACKEND_PORT_INPUT"
+  printf "  Frontend port [${FRONTEND_PORT}]: " && read -r FRONTEND_PORT_INPUT
+  [[ -n "$FRONTEND_PORT_INPUT" ]] && FRONTEND_PORT="$FRONTEND_PORT_INPUT"
 
   if [[ -z "$ADMIN_EMAIL" ]]; then
     printf "  Admin email: " && read -r ADMIN_EMAIL
@@ -157,20 +172,16 @@ else
     echo ""
   fi
 
-  printf "  Frontend URL [http://%s:%s]: " "$SERVER_IP" "$PORT"
-  read -r FRONTEND_URL_INPUT
-  FRONTEND_URL="${FRONTEND_URL_INPUT:-http://$SERVER_IP:$PORT}"
-
   cat > "$INSTALL_DIR/apps/api/.env" << EOF
-PORT=$PORT
-FRONTEND_URL=$FRONTEND_URL
-NODE_ENV=production
+PORT=$BACKEND_PORT
+FRONTEND_URL=http://localhost:$FRONTEND_PORT
+NODE_ENV=development
 EOF
   ok "Environment configured"
 fi
 
 # ═══════════════════════════════════════════════════════════════
-# 7 ── Create admin account
+# 6 ── Create admin account
 # ═══════════════════════════════════════════════════════════════
 if [[ -z "$ADMIN_EMAIL" || -z "$ADMIN_PASSWORD" ]]; then
   if [[ ! -t 0 ]]; then
@@ -194,8 +205,8 @@ SERVER_PID=$!
 printf "  ⏳ Waiting for server"
 _wait=0
 while [ "$_wait" -lt 30 ]; do
-  if curl -s "http://localhost:$PORT/api/health" &>/dev/null; then
-    printf "\r  ✅ Server is up on port $PORT    \n"
+  if curl -s "http://localhost:$BACKEND_PORT/api/health" &>/dev/null; then
+    printf "\r  ✅ Server is up on port $BACKEND_PORT    \n"
     break
   fi
   printf "."
@@ -208,7 +219,7 @@ if ! kill -0 "$SERVER_PID" 2>/dev/null; then
   exit 1
 fi
 
-RESPONSE=$(curl -s -X POST "http://localhost:$PORT/api/auth/register" \
+RESPONSE=$(curl -s -X POST "http://localhost:$BACKEND_PORT/api/auth/register" \
   -H "Content-Type: application/json" \
   -d "$(printf '{"name":"%s","email":"%s","password":"%s"}' "$ADMIN_NAME" "$ADMIN_EMAIL" "$ADMIN_PASSWORD")")
 
@@ -229,9 +240,6 @@ sleep 1
 # ═══════════════════════════════════════════════════════════════
 # Done
 # ═══════════════════════════════════════════════════════════════
-FRONTEND_URL=$(grep '^FRONTEND_URL=' "$INSTALL_DIR/apps/api/.env" 2>/dev/null | cut -d= -f2-)
-FRONTEND_URL="${FRONTEND_URL:-http://localhost:$PORT}"
-
 echo ""
 echo -e "${GREEN}  ╔══════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}  ║       Installation complete! 🎉             ║${NC}"
@@ -240,14 +248,13 @@ echo ""
 echo -e "  ${CYAN}Install dir:${NC} $INSTALL_DIR"
 echo -e "  ${CYAN}Email:${NC}      $ADMIN_EMAIL"
 echo ""
-echo -e "  ${YELLOW}To start:${NC}"
+echo -e "  ${YELLOW}Start the application:${NC}"
 echo ""
-echo -e "    ${BLUE}cd $INSTALL_DIR && npm run dev${NC}"
+echo -e "    ${BLUE}cd $INSTALL_DIR${NC}"
+echo -e "    ${BLUE}npm run dev${NC}"
 echo ""
-echo -e "  This starts the API server (port $PORT) and frontend dev server."
+echo -e "  ${CYAN}Backend:${NC}  http://localhost:$BACKEND_PORT"
+echo -e "  ${CYAN}Frontend:${NC} http://localhost:$FRONTEND_PORT"
 echo ""
 echo -e "  After logging in, add your LLM API key in Settings."
-echo ""
-echo -e "  ${YELLOW}For production:${NC}"
-echo -e "  Set up Nginx to serve ${INSTALL_DIR}/apps/web/dist and proxy /api/ to port $PORT."
 echo ""
