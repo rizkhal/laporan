@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { db } from "../db/index";
 import * as schema from "../db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, or, desc } from "drizzle-orm";
 import { requireAuth, assertOwnership } from "../lib/auth";
 import { createJob } from "../services/job-runner";
 
@@ -30,9 +30,37 @@ router.post("/:id/collect", async (c) => {
       .all();
   }
 
-  // Queue a background job per repo
+  // Check for existing queued/running collect jobs to avoid duplicates
+  const existingJobs = db
+    .select()
+    .from(schema.jobs)
+    .where(
+      and(
+        eq(schema.jobs.workspaceId, ctx.workspace.id),
+        eq(schema.jobs.type, "collect_commits"),
+        or(
+          eq(schema.jobs.status, "queued"),
+          eq(schema.jobs.status, "running"),
+        ),
+      ),
+    )
+    .all();
+
+  const existingReposInQueue = new Set<number>();
+  for (const ej of existingJobs) {
+    try {
+      const p = JSON.parse(ej.payload || "{}");
+      if (p.repositoryId && p.collectionId === id) {
+        existingReposInQueue.add(p.repositoryId);
+      }
+    } catch {}
+  }
+
+  // Queue a background job per repo (skip repos already in queue)
   const jobs: { repoId: number; repoName: string; jobId: number }[] = [];
   for (const repo of repos) {
+    if (existingReposInQueue.has(repo.id)) continue;
+
     const job = createJob(ctx.workspace.id, "collect_commits", {
       repositoryId: repo.id,
       collectionId: id,
@@ -79,22 +107,56 @@ router.post("/:id/analyze", async (c) => {
 
   db.update(schema.collections).set({ status: "analyzing" }).where(eq(schema.collections.id, id)).run();
 
-  // Get repos to analyze (scoped to workspace)
-  let repos;
+  // Determine which repos to analyze: use collection.repoIds (just like collect does)
+  const selectedRepoIds: number[] = collection.repoIds ? JSON.parse(collection.repoIds) : [];
+  let repos: (typeof schema.repositories.$inferSelect)[];
   if (specificRepoId) {
+    // If analyzing a specific repo, just use that one (if it belongs to the collection)
     const repo = db.select().from(schema.repositories)
       .where(and(eq(schema.repositories.id, specificRepoId), eq(schema.repositories.workspaceId, ctx.workspace.id)))
       .get();
     repos = repo ? [repo] : [];
+  } else if (selectedRepoIds.length > 0) {
+    repos = selectedRepoIds
+      .map(rid => db.select().from(schema.repositories).where(and(eq(schema.repositories.id, rid), eq(schema.repositories.workspaceId, ctx.workspace.id))).get())
+      .filter((repo): repo is typeof schema.repositories.$inferSelect => Boolean(repo));
   } else {
     repos = db.select().from(schema.repositories)
-      .where(eq(schema.repositories.workspaceId, ctx.workspace.id))
+      .where(and(eq(schema.repositories.workspaceId, ctx.workspace.id), eq(schema.repositories.enabled, true as any)))
       .all();
   }
 
-  // Queue a background job per repo
+  // Check for existing queued/running analyze jobs to avoid duplicates
+  const existingJobs = db
+    .select()
+    .from(schema.jobs)
+    .where(
+      and(
+        eq(schema.jobs.workspaceId, ctx.workspace.id),
+        eq(schema.jobs.type, "analyze_collection"),
+        or(
+          eq(schema.jobs.status, "queued"),
+          eq(schema.jobs.status, "running"),
+        ),
+      ),
+    )
+    .all();
+
+  const existingReposInQueue = new Set<number>();
+  for (const ej of existingJobs) {
+    try {
+      const p = JSON.parse(ej.payload || "{}");
+      if (p.repositoryId && p.collectionId === id) {
+        existingReposInQueue.add(p.repositoryId);
+      }
+    } catch {}
+  }
+
+  // Queue a background job per repo (skip repos already in queue)
   const jobs: { repoId: number; repoName: string; jobId: number }[] = [];
   for (const repo of repos) {
+    if (existingReposInQueue.has(repo.id)) continue;
+
     const payload: any = { repositoryId: repo.id, collectionId: id };
     if (llmProviderId) payload.llmProviderId = llmProviderId;
 
