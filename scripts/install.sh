@@ -187,19 +187,24 @@ fi
 
 info "Creating admin account..."
 
-node_modules/.bin/tsx apps/api/src/index.ts &
+node_modules/.bin/tsx apps/api/src/index.ts > "$INSTALL_DIR/.server.log" 2>&1 &
 SERVER_PID=$!
 
-# Wait for server to be ready (up to 15s)
-for i in $(seq 1 15); do
+# Wait for server to be ready (up to 30s)
+printf "  ⏳ Waiting for server"
+_wait=0
+while [ "$_wait" -lt 30 ]; do
   if curl -s "http://localhost:$PORT/api/health" &>/dev/null; then
+    printf "\r  ✅ Server is up on port $PORT    \n"
     break
   fi
+  printf "."
+  _wait=$((_wait + 1))
   sleep 1
 done
 
 if ! kill -0 "$SERVER_PID" 2>/dev/null; then
-  err "Server failed to start."
+  err "Server failed to start. Check logs: cat $INSTALL_DIR/.server.log"
   exit 1
 fi
 
