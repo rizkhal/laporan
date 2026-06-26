@@ -29,6 +29,27 @@ router.post("/", async (c) => {
   const body = await c.req.json();
   const parsed = z.object({ year: z.number(), month: z.number(), repoIds: z.array(z.number()).optional() }).parse(body);
 
+  // Validate: no duplicate collection for the same (workspaceId, year, month)
+  const existing = db
+    .select()
+    .from(schema.collections)
+    .where(
+      and(
+        eq(schema.collections.workspaceId, ctx.workspace.id),
+        eq(schema.collections.year, parsed.year),
+        eq(schema.collections.month, parsed.month),
+      ),
+    )
+    .get();
+
+  if (existing) {
+    const title = `${new Date(parsed.year, parsed.month - 1).toLocaleString("default", { month: "long" })} ${parsed.year}`;
+    return c.json(
+      { error: `A collection for ${title} already exists. Edit the existing collection to add more repositories, or delete it first to create a new one.` },
+      409,
+    );
+  }
+
   const title = `${new Date(parsed.year, parsed.month - 1).toLocaleString("default", { month: "long" })} ${parsed.year}`;
 
   const result = db.insert(schema.collections).values({
