@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/badge";
 import { Input } from "../components/ui/Input";
@@ -13,7 +13,6 @@ interface Collection {
 }
 interface Repo { id: number; name: string; localPath: string; }
 interface Stats { totalCommits?: number; totalFiles?: number; totalInsertions?: number; totalDeletions?: number; }
-interface RepoStats { repoId: number; repoName: string; commits: number; insertions: number; deletions: number; }
 
 const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const statusVariant: Record<string, "default" | "secondary" | "success" | "warning"> = {
@@ -42,9 +41,6 @@ export default function Collections() {
   const [editingCollection, setEditingCollection] = useState<Collection | null>(null);
   const [editRepoIds, setEditRepoIds] = useState<number[] | null>(null);
   const [editing, setEditing] = useState(false);
-  const [searchParams, setSearchParams] = useSearchParams();
-  const viewMode = (searchParams.get("view") === "by-repo" ? "by-repo" : "timeline") as "timeline" | "by-repo";
-  const [repoStatsMap, setRepoStatsMap] = useState<Record<number, RepoStats[]>>({});
 
   useEffect(() => {
     async function load() {
@@ -60,15 +56,6 @@ export default function Collections() {
           await apiFetch<Stats>(`/collections/${collection.id}/stats`).catch(() => ({})),
         ] as const));
         setStats(Object.fromEntries(pairs));
-
-        // Load per-repo stats for each collection
-        const repoPairs = await Promise.all(collectionData.map(async (c) => {
-          try {
-            const data = await apiFetch<RepoStats[]>(`/collections/${c.id}/repo-stats`);
-            return [c.id, data] as const;
-          } catch { return [c.id, []] as const; }
-        }));
-        setRepoStatsMap(Object.fromEntries(repoPairs));
       } catch (err: any) {
         setError(err.message);
       } finally {
@@ -142,16 +129,8 @@ export default function Collections() {
       <section className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
         <div>
           <p className="mb-2 text-sm font-medium text-primary">Git collection</p>
-          <h1 className="text-3xl font-semibold tracking-[-0.04em]">Collection timeline</h1>
+          <h1 className="text-3xl font-semibold tracking-[-0.04em]">Collections</h1>
           <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">Each reporting period captures repository activity before analysis begins.</p>
-          <div className="mt-4 flex items-center gap-1 rounded-lg border border-border bg-card p-0.5 w-fit">
-            <button type="button" onClick={() => setSearchParams({ view: "timeline" })} className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === "timeline" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
-                          Timeline
-                        </button>
-                        <button type="button" onClick={() => setSearchParams({ view: "by-repo" })} className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === "by-repo" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
-              By repository
-            </button>
-          </div>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild><Button onClick={() => setSelectedRepoIds(null)}><Plus className="size-4" /> New collection</Button></DialogTrigger>
@@ -206,17 +185,6 @@ export default function Collections() {
           <p className="mt-1 text-sm text-muted-foreground">Create a reporting period to collect the first set of commits.</p>
           <Button className="mt-5" onClick={() => setDialogOpen(true)}><Plus /> Create collection</Button>
         </div>
-      ) : viewMode === "by-repo" ? (
-        <RepoGroupView
-          collections={collections}
-          repos={repos}
-          repoStatsMap={repoStatsMap}
-          statusVariant={statusVariant}
-          months={months}
-          navigate={navigate}
-          onEdit={handleEditCollection}
-          onDelete={handleDelete}
-        />
       ) : (
         <div className="relative space-y-4 before:absolute before:bottom-8 before:left-5 before:top-8 before:w-px before:bg-border sm:before:left-7">
           {collections.map((collection, index) => {
@@ -309,108 +277,4 @@ export default function Collections() {
 
 function Metric({ icon: Icon, label, value }: { icon: typeof GitBranch; label: string; value: number }) {
   return <div><p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Icon className="size-3.5" /> {label}</p><p className="mt-1 font-mono text-lg font-semibold">{value}</p></div>;
-}
-
-function RepoGroupView({
-  collections,
-  repos,
-  repoStatsMap,
-  statusVariant,
-  months,
-  navigate,
-  onEdit,
-  onDelete,
-}: {
-  collections: Collection[];
-  repos: Repo[];
-  repoStatsMap: Record<number, RepoStats[]>;
-  statusVariant: Record<string, string>;
-  months: string[];
-  navigate: (path: string) => void;
-  onEdit: (c: Collection) => void;
-  onDelete: (e: React.MouseEvent, id: number) => void;
-}) {
-  // Build repo -> collections map
-  const repoCollections = new Map<number, { repo: Repo; collections: { collection: Collection; stats?: RepoStats }[] }>();
-
-  for (const repo of repos) {
-    const colls = collections
-      .filter((c) => !c.repoIds || (Array.isArray(c.repoIds) ? c.repoIds : JSON.parse(c.repoIds as string)).includes(repo.id))
-      .map((c) => ({
-        collection: c,
-        stats: repoStatsMap[c.id]?.find((s) => s.repoId === repo.id),
-      }))
-      .sort((a, b) => {
-        const dateA = b.collection.year * 12 + b.collection.month;
-        const dateB = a.collection.year * 12 + a.collection.month;
-        return dateB - dateA;
-      });
-    if (colls.length > 0) {
-      repoCollections.set(repo.id, { repo, collections: colls });
-    }
-  }
-
-  const sortedRepos = [...repoCollections.values()].sort((a, b) => {
-    const aLatest = a.collections[0]?.collection;
-    const bLatest = b.collections[0]?.collection;
-    const aDate = aLatest ? aLatest.year * 12 + aLatest.month : 0;
-    const bDate = bLatest ? bLatest.year * 12 + bLatest.month : 0;
-    return bDate - aDate;
-  });
-
-  return (
-    <div className="relative space-y-4 before:absolute before:bottom-8 before:left-5 before:top-8 before:w-px before:bg-border sm:before:left-7">
-      {sortedRepos.map(({ repo, collections: colls }, index) => {
-        const totalCommits = colls.reduce((s, c) => s + (c.stats?.commits || 0), 0);
-        const totalInsertions = colls.reduce((s, c) => s + (c.stats?.insertions || 0), 0);
-        const totalDeletions = colls.reduce((s, c) => s + (c.stats?.deletions || 0), 0);
-        return (
-          <article key={repo.id} className="relative pl-12 sm:pl-16">
-            <span className={`absolute left-[14px] top-7 z-10 size-3 rounded-full border-[3px] border-background sm:left-[22px] ${index === 0 ? "bg-primary" : "bg-muted-foreground/40"}`} />
-            <div className="surface w-full rounded-xl p-5 sm:p-6">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <GitBranch className="size-4 text-primary" />
-                    <h3 className="truncate text-lg font-semibold">{repo.name}</h3>
-                  </div>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {colls.length} collection{colls.length > 1 ? "s" : ""} • {totalCommits} total commit{totalCommits !== 1 ? "s" : ""}
-                    <span className="ml-2 text-success-foreground">+{totalInsertions}</span>
-                    <span className="ml-1 text-destructive">-{totalDeletions}</span>
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-4 grid gap-2">
-                {colls.map(({ collection: c, stats }) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => navigate(`/collections/${c.id}`)}
-                    className="group flex items-center gap-3 rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-left transition-all hover:border-border hover:bg-muted/60"
-                  >
-                    <Badge variant={statusVariant[c.status] as any} className="shrink-0">{c.status}</Badge>
-                    <span className="min-w-0 truncate text-sm font-medium">{c.title}</span>
-                    {stats && (
-                      <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-                        {stats.commits} commit{stats.commits !== 1 ? "s" : ""}
-                        <span className="ml-1.5 text-success-foreground">+{stats.insertions}</span>
-                        <span className="ml-1 text-destructive">-{stats.deletions}</span>
-                      </span>
-                    )}
-                    {!stats && <span className="ml-auto text-xs text-muted-foreground">No commits</span>}
-                    <span className="flex items-center gap-1 shrink-0 ml-2">
-                      <span onClick={(e) => { e.stopPropagation(); onEdit(c); }} className="grid size-7 place-items-center rounded-md text-muted-foreground opacity-0 transition-all hover:bg-muted group-hover:opacity-100"><Pencil className="size-3" /></span>
-                      <span onClick={(e) => onDelete(e, c.id)} className="grid size-7 place-items-center rounded-md text-muted-foreground opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"><Trash2 className="size-3" /></span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </article>
-        );
-      })}
-    </div>
-  );
 }
