@@ -6,15 +6,21 @@
  */
 
 import { google } from "googleapis";
+import type { OAuth2Client } from "googleapis-common";
 
 /**
  * Build the OAuth2 client and refresh tokens if needed.
+ *
+ * This function uses googleapis OAuth2 client which handles token refresh
+ * transparently. The returned `freshAccessToken` should be used for raw
+ * API calls (fetch), while the `oauthClient` should be used for googleapis
+ * library calls.
  */
 export async function getAuthenticatedClient(
   accessToken: string,
   refreshToken: string,
 ): Promise<{
-  oauthClient: any;
+  oauthClient: OAuth2Client;
   freshAccessToken: string;
 }> {
   const clientId = process.env.GOOGLE_CLIENT_ID || "";
@@ -33,16 +39,22 @@ export async function getAuthenticatedClient(
     refresh_token: refreshToken,
   });
 
-  // Try to refresh the token if expired
+  // Try to refresh the token if expired.
+  // getAccessToken() will auto-refresh if the token is expired.
   try {
     const credentials = await oauthClient.getAccessToken();
+    // Use the refreshed token, or fall back to the current credentials,
+    // or the original accessToken
+    const creds = oauthClient.credentials;
+    const actualToken = credentials?.token || creds?.access_token || accessToken;
     return {
       oauthClient,
-      freshAccessToken: credentials.token || accessToken,
+      freshAccessToken: actualToken,
     };
   } catch {
     // If refresh fails, use the original token (will fail later with a clear error)
-    return { oauthClient, freshAccessToken: accessToken };
+    const creds = oauthClient.credentials;
+    return { oauthClient, freshAccessToken: creds?.access_token || accessToken };
   }
 }
 

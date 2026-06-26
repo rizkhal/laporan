@@ -306,33 +306,6 @@ export async function runExportWorker(options: WorkerOptions): Promise<WorkerRes
   console.log(`📄 Export Worker starting: "${documentTitle}" (${totalChunks} chunks)`);
   printChunks(ast);
 
-  // Step 2: Create document if not resuming
-  if (!resumeFromChunk || resumeFromChunk === 0) {
-    const createRes = await fetch(
-      "https://docs.googleapis.com/v1/documents",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ title: documentTitle }),
-      },
-    );
-    const createData: any = await createRes.json();
-    if (!createRes.ok) {
-      return {
-        success: false,
-        documentId: "",
-        documentUrl: "",
-        completedChunks: 0,
-        totalChunks,
-        error: `Failed to create document: ${createData?.error?.message || "Unknown error"}`,
-      };
-    }
-    documentId = createData.documentId;
-  }
-
   // Build the document URL
   const documentUrl = `https://docs.google.com/document/d/${documentId}/edit`;
 
