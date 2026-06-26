@@ -180,9 +180,14 @@ FRONTEND_URL=http://localhost:$FRONTEND_PORT
 NODE_ENV=development
 EOF
 
-  # Write root .env so Vite picks up the custom frontend port
+  # Write root .env so Vite picks up custom frontend port
   cat > "$INSTALL_DIR/.env" << EOF
 VITE_PORT=$FRONTEND_PORT
+EOF
+
+  # Write web .env so frontend knows where the API lives
+  cat > "$INSTALL_DIR/apps/web/.env" << EOF
+VITE_API_URL=http://localhost:$BACKEND_PORT
 EOF
   ok "Environment configured"
 fi
