@@ -10,7 +10,7 @@ import { apiFetch, apiUrl, cn } from "../lib/utils";
 import { useAuth } from "../lib/auth";
 import {
   Plus, Pencil, Trash2, Loader2, Bot, KeyRound, FileText, User, Save,
-  Building2, Hash, Check, X, AlertTriangle,
+  Building2, Hash, Check, X, AlertTriangle, Eye, EyeOff,
 } from "lucide-react";
 
 interface LLMProvider {
@@ -68,6 +68,7 @@ export default function SettingsPage() {
 
   // LLM state
   const [providers, setProviders] = useState<LLMProvider[]>([]);
+  const [showApiKey, setShowApiKey] = useState(false);
   const [llmDialogOpen, setLlmDialogOpen] = useState(false);
   const [editingLlm, setEditingLlm] = useState<LLMProvider | null>(null);
   const [llmForm, setLlmForm] = useState({ name: "", baseUrl: "", apiKey: "", model: "" });
@@ -835,7 +836,12 @@ export default function SettingsPage() {
                       </div>
                       <div>
                         <Label>API Key</Label>
-                        <Input type="password" value={llmForm.apiKey} onChange={e => setLlmForm({...llmForm, apiKey: e.target.value})} placeholder="sk-..." />
+                        <div className="relative">
+                          <Input type={showApiKey ? "text" : "password"} value={llmForm.apiKey} onChange={e => setLlmForm({...llmForm, apiKey: e.target.value})} placeholder="sk-..." className="pr-10" />
+                          <button type="button" onClick={() => setShowApiKey(!showApiKey)} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors" tabIndex={-1}>
+                            {showApiKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                          </button>
+                        </div>
                       </div>
                       <div>
                         <Label>Model</Label>
