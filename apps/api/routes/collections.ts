@@ -23,31 +23,84 @@ router.get("/", (c) => {
   return c.json(parsed);
 });
 
+// Helper: get all repo IDs already collected in OTHER collections for the same (year, month)
+function getOccupiedRepoIds(
+  workspaceId: number,
+  year: number,
+  month: number,
+  excludeCollectionId?: number,
+): { repoId: number; collectionId: number; collectionTitle: string }[] {
+  let collections;
+  if (excludeCollectionId !== undefined) {
+    collections = db
+      .select()
+      .from(schema.collections)
+      .where(
+        and(
+          eq(schema.collections.workspaceId, workspaceId),
+          eq(schema.collections.year, year),
+          eq(schema.collections.month, month),
+        ),
+      )
+      .all()
+      .filter((col) => col.id !== excludeCollectionId);
+  } else {
+    collections = db
+      .select()
+      .from(schema.collections)
+      .where(
+        and(
+          eq(schema.collections.workspaceId, workspaceId),
+          eq(schema.collections.year, year),
+          eq(schema.collections.month, month),
+        ),
+      )
+      .all();
+  }
+
+  const occupied: { repoId: number; collectionId: number; collectionTitle: string }[] = [];
+  for (const col of collections) {
+    if (!col.repoIds) continue; // null means "all repos" - skip, treat as non-blocking
+    try {
+      const ids = JSON.parse(col.repoIds) as number[];
+      for (const rid of ids) {
+        occupied.push({ repoId: rid, collectionId: col.id, collectionTitle: col.title });
+      }
+    } catch {}
+  }
+  return occupied;
+}
+
 // Create collection
 router.post("/", async (c) => {
   const ctx = requireAuth(c);
   const body = await c.req.json();
   const parsed = z.object({ year: z.number(), month: z.number(), repoIds: z.array(z.number()).optional() }).parse(body);
 
-  // Validate: no duplicate collection for the same (workspaceId, year, month)
-  const existing = db
-    .select()
-    .from(schema.collections)
-    .where(
-      and(
-        eq(schema.collections.workspaceId, ctx.workspace.id),
-        eq(schema.collections.year, parsed.year),
-        eq(schema.collections.month, parsed.month),
-      ),
-    )
-    .get();
+  // Validate: repos cannot already exist in another collection for the same (year, month)
+  const newRepoIds = parsed.repoIds || [];
+  if (newRepoIds.length > 0) {
+    const occupied = getOccupiedRepoIds(ctx.workspace.id, parsed.year, parsed.month);
+    const conflictIds = new Set(occupied.map((o) => o.repoId));
+    const conflicts = newRepoIds.filter((rid) => conflictIds.has(rid));
 
-  if (existing) {
-    const title = `${new Date(parsed.year, parsed.month - 1).toLocaleString("default", { month: "long" })} ${parsed.year}`;
-    return c.json(
-      { error: `A collection for ${title} already exists. Edit the existing collection to add more repositories, or delete it first to create a new one.` },
-      409,
-    );
+    if (conflicts.length > 0) {
+      const conflictingRepos = db
+        .select()
+        .from(schema.repositories)
+        .where(and(eq(schema.repositories.workspaceId, ctx.workspace.id)))
+        .all()
+        .filter((r) => conflicts.includes(r.id))
+        .map((r) => r.name);
+
+      const period = `${new Date(parsed.year, parsed.month - 1).toLocaleString("default", { month: "long" })} ${parsed.year}`;
+      return c.json(
+        {
+          error: `Repositori berikut sudah memiliki koleksi untuk ${period}: ${conflictingRepos.join(", ")}. Gunakan koleksi yang sudah ada atau pilih repositori lain.`,
+        },
+        409,
+      );
+    }
   }
 
   const title = `${new Date(parsed.year, parsed.month - 1).toLocaleString("default", { month: "long" })} ${parsed.year}`;
@@ -83,6 +136,31 @@ router.put("/:id", async (c) => {
 
   const body = await c.req.json();
   const parsed = z.object({ repoIds: z.array(z.number()).nullable().optional() }).parse(body);
+
+  // Validate: repos cannot already exist in another collection for the same (year, month)
+  if (parsed.repoIds !== undefined && parsed.repoIds !== null && parsed.repoIds.length > 0) {
+    const occupied = getOccupiedRepoIds(ctx.workspace.id, collection.year, collection.month, id);
+    const conflictIds = new Set(occupied.map((o) => o.repoId));
+    const conflicts = parsed.repoIds.filter((rid) => conflictIds.has(rid));
+
+    if (conflicts.length > 0) {
+      const conflictingRepos = db
+        .select()
+        .from(schema.repositories)
+        .where(and(eq(schema.repositories.workspaceId, ctx.workspace.id)))
+        .all()
+        .filter((r) => conflicts.includes(r.id))
+        .map((r) => r.name);
+
+      const period = `${new Date(collection.year, collection.month - 1).toLocaleString("default", { month: "long" })} ${collection.year}`;
+      return c.json(
+        {
+          error: `Repositori berikut sudah memiliki koleksi lain untuk ${period}: ${conflictingRepos.join(", ")}. Hapus repositori dari koleksi lain terlebih dahulu.`,
+        },
+        409,
+      );
+    }
+  }
 
   const updateData: any = { updatedAt: new Date().toISOString() };
   if (parsed.repoIds !== undefined) {
