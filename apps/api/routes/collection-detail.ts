@@ -47,16 +47,28 @@ router.post("/:id/collect", async (c) => {
     .all();
 
   const existingReposInQueue = new Set<number>();
-  for (const ej of existingJobs) {
+  const staleJobIds: number[] = [];
+  const seenRepos = new Set<number>();
+  for (const ej of [...existingJobs].reverse()) {
     try {
       const p = JSON.parse(ej.payload || "{}");
       if (p.repositoryId && p.collectionId === id) {
-        existingReposInQueue.add(p.repositoryId);
+        if (seenRepos.has(p.repositoryId)) {
+          staleJobIds.push(ej.id);
+        } else {
+          seenRepos.add(p.repositoryId);
+          existingReposInQueue.add(p.repositoryId);
+        }
       }
     } catch {}
   }
 
-  // Queue a background job per repo (skip repos already in queue)
+  // Delete stale queued duplicates (safe: they haven't started)
+  for (const sid of staleJobIds) {
+    db.delete(schema.jobs).where(eq(schema.jobs.id, sid)).run();
+  }
+
+  // Queue a background job per repo (skip repos still running)
   const jobs: { repoId: number; repoName: string; jobId: number }[] = [];
   for (const repo of repos) {
     if (existingReposInQueue.has(repo.id)) continue;
@@ -126,7 +138,8 @@ router.post("/:id/analyze", async (c) => {
       .all();
   }
 
-  // Check for existing queued/running analyze jobs to avoid duplicates
+  // Clean up stale duplicate analyze jobs before creating new ones
+  // This handles both old duplicates from before the dedup fix and rapid re-clicks
   const existingJobs = db
     .select()
     .from(schema.jobs)
@@ -142,17 +155,31 @@ router.post("/:id/analyze", async (c) => {
     )
     .all();
 
+  // Group existing jobs by repo, keep track of which repos already have one
   const existingReposInQueue = new Set<number>();
-  for (const ej of existingJobs) {
+  const staleJobIds: number[] = [];
+  const seenRepos = new Set<number>();
+  for (const ej of [...existingJobs].reverse()) {
     try {
       const p = JSON.parse(ej.payload || "{}");
       if (p.repositoryId && p.collectionId === id) {
-        existingReposInQueue.add(p.repositoryId);
+        if (seenRepos.has(p.repositoryId)) {
+          // This is a duplicate — mark for deletion
+          staleJobIds.push(ej.id);
+        } else {
+          seenRepos.add(p.repositoryId);
+          existingReposInQueue.add(p.repositoryId);
+        }
       }
     } catch {}
   }
 
-  // Queue a background job per repo (skip repos already in queue)
+  // Delete stale queued duplicates (safe: they haven't started)
+  for (const sid of staleJobIds) {
+    db.delete(schema.jobs).where(eq(schema.jobs.id, sid)).run();
+  }
+
+  // Queue a background job per repo (skip repos that still have an active job)
   const jobs: { repoId: number; repoName: string; jobId: number }[] = [];
   for (const repo of repos) {
     if (existingReposInQueue.has(repo.id)) continue;
