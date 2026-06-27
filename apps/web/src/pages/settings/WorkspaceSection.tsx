@@ -2,10 +2,8 @@ import { useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { Label } from "../../components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 import { apiFetch } from "../../lib/utils";
-import { useAuth } from "../../lib/auth";
-import { Save, Loader2, Trash2, AlertTriangle, Hash } from "lucide-react";
+import { Save, Loader2, Hash } from "lucide-react";
 
 interface WorkspaceSectionProps {
   activeWorkspace: any;
@@ -18,10 +16,6 @@ export function WorkspaceSection({ activeWorkspace, refreshWorkspaces }: Workspa
   const [wsSaving, setWsSaving] = useState(false);
   const [wsSuccess, setWsSuccess] = useState<string | null>(null);
   const [wsError, setWsError] = useState<string | null>(null);
-  const [deleteWsDialogOpen, setDeleteWsDialogOpen] = useState(false);
-  const [deleteWsLoading, setDeleteWsLoading] = useState(false);
-  const [deleteWsError, setDeleteWsError] = useState<string | null>(null);
-
   async function handleSaveWorkspace() {
     if (!activeWorkspace) return;
     setWsError(null);
@@ -41,22 +35,6 @@ export function WorkspaceSection({ activeWorkspace, refreshWorkspaces }: Workspa
       setWsError(err.message);
     } finally {
       setWsSaving(false);
-    }
-  }
-
-  async function handleDeleteWorkspace() {
-    if (!activeWorkspace) return;
-    setDeleteWsError(null);
-    setDeleteWsLoading(true);
-    try {
-      await apiFetch(`/workspaces/${activeWorkspace.id}`, { method: "DELETE" });
-      setDeleteWsDialogOpen(false);
-      await refreshWorkspaces();
-      window.location.href = "/dashboard";
-    } catch (err: any) {
-      setDeleteWsError(err.message);
-    } finally {
-      setDeleteWsLoading(false);
     }
   }
 
@@ -100,39 +78,6 @@ export function WorkspaceSection({ activeWorkspace, refreshWorkspaces }: Workspa
           </div>
         </div>
       </div>
-
-      {/* Delete Workspace */}
-      <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-6">
-        <div className="flex items-start justify-between">
-          <div>
-            <h3 className="text-base font-semibold text-destructive">Delete Workspace</h3>
-            <p className="mt-1 text-sm text-muted-foreground max-w-md">Permanently delete this workspace and all associated data. This action cannot be undone.</p>
-          </div>
-          <Button variant="destructive" size="sm" onClick={() => setDeleteWsDialogOpen(true)}>
-            <Trash2 className="size-3.5" /> Delete
-          </Button>
-        </div>
-      </div>
-
-      <Dialog open={deleteWsDialogOpen} onOpenChange={setDeleteWsDialogOpen}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-destructive"><AlertTriangle className="size-5" /> Delete Workspace</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">This will permanently delete this workspace, including all repositories, collections, analyses, reports, and settings. This action cannot be undone.</p>
-            <p className="text-sm font-medium">Are you sure you want to delete <strong>{activeWorkspace?.name}</strong>?</p>
-            {deleteWsError && (<div className="rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">{deleteWsError}</div>)}
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={() => { setDeleteWsDialogOpen(false); setDeleteWsError(null); }}>Cancel</Button>
-              <Button variant="destructive" size="sm" disabled={deleteWsLoading} onClick={handleDeleteWorkspace}>
-                {deleteWsLoading && <Loader2 className="size-3.5 animate-spin" />}
-                Delete Workspace
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
