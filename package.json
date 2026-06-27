@@ -15,8 +15,5 @@
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
-  },
-  "dependencies": {
-    "markdown-docx": "^1.6.0"
   }
 }
