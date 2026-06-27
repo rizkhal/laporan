@@ -9,16 +9,17 @@
  * so the visual hierarchy is clear while TOC compatibility is preserved.
  *
  *   H1  → Heading 1, indent 0
- *   H2  → Heading 2, indent 720 twips (0.5")
- *   H3  → Heading 3, indent 1440 twips (1.0")
- *   H4+ → Heading 4, indent 2160 twips (1.5")
+ *   H2  → Heading 2, indent 0
+ *   H3  → Heading 3, indent 240 twips
+ *   H4  → Heading 4, indent 480 twips
+ *   body → inherits indent from nearest heading + 240 twips
  *
  * Markdown remains the canonical source of truth — this module only
  * provides an export derivation, never modifies stored content.
  */
 
 import { MarkdownDocx, Packer } from "markdown-docx";
-import { Paragraph, HeadingLevel } from "docx";
+import { Paragraph, HeadingLevel, createIndent } from "docx";
 
 // ── Heading indent map (in twips; 1 inch = 1440 twips) ──
 
@@ -29,6 +30,16 @@ const HEADING_INDENT: Record<number, { left: number }> = {
   4: { left: 480 },
   5: { left: 720 },
   6: { left: 960 },
+};
+
+// Body indent = one level deeper than the heading it follows
+const BODY_INDENT: Record<number, { left: number }> = {
+  1: { left: 240 },
+  2: { left: 480 },
+  3: { left: 720 },
+  4: { left: 960 },
+  5: { left: 1200 },
+  6: { left: 1440 },
 };
 
 const HEADING_LEVEL_MAP: Record<number, (typeof HeadingLevel)[keyof typeof HeadingLevel]> = {
@@ -78,16 +89,15 @@ export async function generateReportDocx(
     ignoreImage: true,
   });
 
-  // 3. Override toBlocks to intercept heading tokens.
-  //
-  //    markdown-docx's renderBlocks handles "heading" in an explicit switch
-  //    BEFORE reaching useBlockRender, so addBlockRender("heading", …)
-  //    never fires.  Instead we intercept at the toBlocks level:
-  //
-  //    • Heading tokens → Paragraph with built-in HeadingLevel + direct indent
-  //      (NO custom MdHeadingX style, so only ONE <w:pStyle> element is emitted)
-  //    • Non-heading tokens → batched and delegated to original toBlocks in a
-  //      SINGLE call so list numbering state remains correct across siblings
+  // 3. Override toBlocks to:
+  //    a. Intercept heading tokens → Paragraph with built-in HeadingLevel +
+  //       heading indent (NO custom MdHeadingX style, so only ONE <w:pStyle>
+  //       element is emitted → proper TOC compatibility)
+  //    b. Group non-heading tokens into body segments, each inheriting indent
+  //       from the most recent heading level.
+  //    c. Render each body segment as a batch (list numbering state preserved)
+  //       and then apply body indent via createIndent() directly on each
+  //       Paragraph's properties.
   //
   const originalToBlocks = MarkdownDocx.prototype.toBlocks.bind(render);
 
@@ -95,60 +105,72 @@ export async function generateReportDocx(
     tokens: any[],
     attr: any = {},
   ): any[] {
-    // First pass: split into heading vs non-heading groups while
-    // preserving document order via positional metadata.
-    const headingIndices: number[] = [];
-    const headingBlocks: any[] = [];
-    const nonHeadingBlockIndices: number[] = [];
-    const nonHeadingBlocks: any[] = [];
+    // ── Segment: heading + its following body content ──
+    // Each segment has { headingLevel, bodyTokens: [...] }
+    // Segments before any heading get level=1 (no indent)
+    const segments: { level: number; headingBlock: any | null; bodyTokens: any[] }[] = [];
+    let currentLevel = 1;
+    let currentBody: any[] = [];
 
-    for (let i = 0; i < tokens.length; i++) {
-      const block = tokens[i];
+    for (const block of tokens) {
       if (block.type === "heading") {
-        headingIndices.push(i);
-        headingBlocks.push(block);
+        // Flush accumulated body into a segment
+        if (currentBody.length > 0) {
+          segments.push({ level: currentLevel, headingBlock: null, bodyTokens: currentBody });
+          currentBody = [];
+        }
+        // Push heading as its own segment
+        segments.push({ level: block.depth, headingBlock: block, bodyTokens: [] });
+        currentLevel = block.depth;
       } else {
-        nonHeadingBlockIndices.push(i);
-        nonHeadingBlocks.push(block);
+        currentBody.push(block);
       }
     }
+    // Flush trailing body
+    if (currentBody.length > 0) {
+      segments.push({ level: currentLevel, headingBlock: null, bodyTokens: currentBody });
+    }
 
-    // Render all non-heading blocks in a SINGLE batch so list state is correct
-    const nonHeadingResult = nonHeadingBlocks.length > 0
-      ? originalToBlocks(nonHeadingBlocks, attr)
-      : [];
-
-    // Render heading blocks individually
-    const headingResult = headingBlocks.map((block) => {
-      const depth = block.depth; // 1–6
-      const headingLevel = HEADING_LEVEL_MAP[depth] || HeadingLevel.HEADING_6;
-      const indent = HEADING_INDENT[depth] || HEADING_INDENT[6];
-
-      // Render inline tokens (bold, italic, code, etc.)
-      const children = (this as any).toTexts(block.tokens, {});
-
-      return new Paragraph({
-        children,
-        heading: headingLevel,
-        indent,
-        spacing: {
-          before: depth === 1 ? 480 : 320,
-          after: depth === 1 ? 240 : 160,
-        },
-      });
-    });
-
-    // Interleave results back in original document order
+    // ── Render each segment ──
     const result: any[] = [];
-    let hi = 0;
-    let ni = 0;
-    for (let i = 0; i < tokens.length; i++) {
-      if (hi < headingIndices.length && headingIndices[hi] === i) {
-        result.push(headingResult[hi]);
-        hi++;
-      } else if (ni < nonHeadingBlockIndices.length && nonHeadingBlockIndices[ni] === i) {
-        result.push(nonHeadingResult[ni]);
-        ni++;
+
+    for (const seg of segments) {
+      if (seg.headingBlock) {
+        // ── Heading ──
+        const block = seg.headingBlock;
+        const depth = block.depth;
+        const headingLevel = HEADING_LEVEL_MAP[depth] || HeadingLevel.HEADING_6;
+        const indent = HEADING_INDENT[depth] || HEADING_INDENT[6];
+        const children = (this as any).toTexts(block.tokens, {});
+
+        result.push(
+          new Paragraph({
+            children,
+            heading: headingLevel,
+            indent,
+            spacing: {
+              before: depth === 1 ? 480 : 320,
+              after: depth === 1 ? 240 : 160,
+            },
+          }),
+        );
+      }
+
+      // ── Body content after heading ──
+      if (seg.bodyTokens.length > 0) {
+        const bodyIndent = BODY_INDENT[seg.level] || BODY_INDENT[6];
+        const bodyItems = originalToBlocks(seg.bodyTokens, attr);
+
+        // Apply body indent to each rendered item
+        for (const item of bodyItems) {
+          if (item instanceof Paragraph) {
+            // properties is declared `private` in docx TS types but is a
+            // regular property at runtime (no # prefix in source).
+            // Access via cast to bypass compile-time check.
+            (item as any).properties.push(createIndent(bodyIndent));
+          }
+          result.push(item);
+        }
       }
     }
 
