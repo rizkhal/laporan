@@ -99,13 +99,26 @@ app.route("/api", eventsRouter);
 
 app.get("/api/health", (c) => c.json({ status: "ok" }));
 
+function startServer(port: number) {
+  const server = serve({
+    fetch: app.fetch,
+    port,
+  }, () => {
+    console.log(`✅ Server running on http://localhost:${port}`);
+  });
+
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      console.log(`  Port ${port} in use, trying ${port + 1}...`);
+      startServer(port + 1);
+    } else {
+      console.error("Server error:", err);
+      process.exit(1);
+    }
+  });
+}
+
 const port = parseInt(process.env.PORT || "3000");
-
-serve({
-  fetch: app.fetch,
-  port,
-});
-
-console.log(`✅ Server running on http://localhost:${port}`);
+startServer(port);
 
 export default app;

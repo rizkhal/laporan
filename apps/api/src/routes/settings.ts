@@ -1,11 +1,13 @@
 import { Hono } from "hono";
-import { db } from "../db/index";
+import { db, sqlite, DB_PATH, reloadDatabase } from "../db/index";
 import * as schema from "../db/schema";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { requireAuth, assertOwnership } from "../lib/auth";
 import { encrypt, decrypt } from "../lib/crypto";
 import { isSafeLLMUrl } from "../lib/url-validator";
+import fs from "fs";
+import path from "path";
 
 const router = new Hono();
 
@@ -186,6 +188,93 @@ router.post("/llm/test", async (c) => {
       { success: false, error: "Connection failed" },
       { status: 200 },
     );
+  }
+});
+
+// ── Database export ──
+router.get("/db/export", (c) => {
+  requireAuth(c);
+
+  try {
+    // Create a safe backup copy (WAL checkpoint first to flush)
+    sqlite.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    const backupPath = DB_PATH + ".export_backup";
+    fs.copyFileSync(DB_PATH, backupPath);
+
+    const fileBuffer = fs.readFileSync(backupPath);
+    // Clean up backup
+    fs.unlinkSync(backupPath);
+
+    c.header("Content-Type", "application/x-sqlite3");
+    c.header("Content-Disposition", `attachment; filename="laporan-db-${Date.now()}.db"`);
+    return c.body(fileBuffer);
+  } catch (err: any) {
+    console.error("DB export error:", err);
+    return c.json({ error: "Failed to export database" }, 500);
+  }
+});
+
+// ── Database import ──
+router.post("/db/import", async (c) => {
+  requireAuth(c);
+
+  try {
+    const body = await c.req.parseBody();
+    const file = body.file;
+    if (!file || !(file instanceof File)) {
+      return c.json({ error: "No file provided" }, 400);
+    }
+
+    // Validate file size (max 100MB)
+    if (file.size > 100 * 1024 * 1024) {
+      return c.json({ error: "File too large. Maximum 100MB." }, 400);
+    }
+
+    // Validate SQLite magic header bytes
+    const headerSlice = file.slice(0, 16);
+    const headerBuf = await headerSlice.arrayBuffer();
+    const header = new Uint8Array(headerBuf);
+    const expectedHeader = new TextEncoder().encode("SQLite format 3\0");
+    const isSQLite = header.length >= 16 && header.every((b, i) => b === expectedHeader[i]);
+    if (!isSQLite) {
+      return c.json({ error: "Invalid file format. Must be a SQLite database (.db)." }, 400);
+    }
+
+    // Save uploaded file to temp path
+    const tempPath = DB_PATH + ".import_temp";
+    const buffer = Buffer.from(await file.arrayBuffer());
+    fs.writeFileSync(tempPath, buffer);
+
+    // Validate the uploaded database has required tables
+    try {
+      const tempDb = new (await import("better-sqlite3")).default(tempPath);
+      const tables = tempDb.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[];
+      const tableNames = tables.map((t) => t.name);
+      tempDb.close();
+
+      const requiredTables = ["users", "workspaces", "repositories", "collections"];
+      const missing = requiredTables.filter((t) => !tableNames.includes(t));
+      if (missing.length > 0) {
+        fs.unlinkSync(tempPath);
+        return c.json({ error: `Invalid database: missing required tables: ${missing.join(", ")}` }, 400);
+      }
+    } catch (validateErr: any) {
+      fs.unlinkSync(tempPath);
+      return c.json({ error: "Cannot open uploaded file as a valid database" }, 400);
+    }
+
+    // Restore: copy uploaded file over current database
+    sqlite.close();
+    fs.copyFileSync(tempPath, DB_PATH);
+    reloadDatabase();
+
+    // Clean up temp file
+    fs.unlinkSync(tempPath);
+
+    return c.json({ success: true, message: "Database imported successfully" });
+  } catch (err: any) {
+    console.error("DB import error:", err);
+    return c.json({ error: "Failed to import database" }, 500);
   }
 });
 

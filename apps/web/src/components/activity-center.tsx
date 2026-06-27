@@ -74,41 +74,51 @@ export function ActivityCenter() {
     } catch {}
   }, []);
 
+  // ── Initial fetch seeds lastCompletedRef → then establish SSE ──
+  // This ordering prevents spurious toasts for jobs that were already completed
+  // before the page was reloaded (race condition between fetch and SSE first event).
   useEffect(() => {
-    fetchJobs();
-  }, [fetchJobs]);
+    let es: EventSource | null = null;
 
-  // ── SSE connection replaces 3s polling ──
-  useEffect(() => {
-    const token = localStorage.getItem("auth_token");
-    if (!token) return;
+    async function init() {
+      // 1. Fetch initial data (this seeds lastCompletedRef)
+      await fetchJobs();
 
-    const es = new EventSource(apiUrl(`/events?token=${token}`));
+      // 2. Then set up SSE (ref is already seeded, so first SSE event won't trigger ghost toasts)
+      const token = localStorage.getItem("auth_token");
+      if (!token) return;
 
-    es.addEventListener("jobs", (e: MessageEvent) => {
-      try {
-        const { active, recent } = JSON.parse(e.data);
-        setActiveJobs(active);
-        setRecentJobs(recent.slice(0, 10));
+      es = new EventSource(apiUrl(`/events?token=${token}`));
 
-        // Show toasts for newly completed/failed jobs only
-        for (const job of recent) {
-          if (!lastCompletedRef.current.has(job.id) && (job.status === "completed" || job.status === "failed")) {
-            lastCompletedRef.current.add(job.id);
-            addToast({
-              type: job.status === "completed" ? "success" : "error",
-              title: job.status === "completed"
-                ? (jobTypeLabelsPast[job.type] || job.type)
-                : `${jobTypeLabels[job.type] || job.type} failed`,
-              description: job.status === "completed" ? job.message || undefined : job.error || job.message || undefined,
-            });
+      es.addEventListener("jobs", (e: MessageEvent) => {
+        try {
+          const { active, recent } = JSON.parse(e.data);
+          setActiveJobs(active);
+          setRecentJobs(recent.slice(0, 10));
+
+          // Show toasts for newly completed/failed jobs only
+          for (const job of recent) {
+            if (!lastCompletedRef.current.has(job.id) && (job.status === "completed" || job.status === "failed")) {
+              lastCompletedRef.current.add(job.id);
+              addToast({
+                type: job.status === "completed" ? "success" : "error",
+                title: job.status === "completed"
+                  ? (jobTypeLabelsPast[job.type] || job.type)
+                  : `${jobTypeLabels[job.type] || job.type} failed`,
+                description: job.status === "completed" ? job.message || undefined : job.error || job.message || undefined,
+              });
+            }
           }
-        }
-      } catch {}
-    });
+        } catch {}
+      });
+    }
 
-    return () => es.close();
-  }, [addToast]);
+    init();
+
+    return () => {
+      if (es) es.close();
+    };
+  }, [addToast]); // fetchJobs is not a dep — it's called directly inside init
 
   async function cancelJob(jobId: number) {
     setActing((prev) => new Set(prev).add(jobId));
