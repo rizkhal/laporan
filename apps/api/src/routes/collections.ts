@@ -4,6 +4,7 @@ import * as schema from "../db/schema";
 import { eq, ne, desc, asc, and } from "drizzle-orm";
 import { z } from "zod";
 import { requireAuth, assertOwnership } from "../lib/auth";
+import { HTTPException } from "hono/http-exception";
 
 const router = new Hono();
 
@@ -92,18 +93,24 @@ function hasAllReposCollection(workspaceId: number, year: number, month: number,
 
 // List all collections scoped to workspace
 router.get("/", (c) => {
-  const ctx = requireAuth(c);
-  const collections = db
-    .select()
-    .from(schema.collections)
-    .where(eq(schema.collections.workspaceId, ctx.workspace.id))
-    .orderBy(desc(schema.collections.year), asc(schema.collections.month))
-    .all();
-  const parsed = collections.map(col => ({
-    ...col,
-    repoIds: col.repoIds ? JSON.parse(col.repoIds) : null,
-  }));
-  return c.json(parsed);
+  try {
+    const ctx = requireAuth(c);
+    const collections = db
+      .select()
+      .from(schema.collections)
+      .where(eq(schema.collections.workspaceId, ctx.workspace.id))
+      .orderBy(desc(schema.collections.year), asc(schema.collections.month))
+      .all();
+    const parsed = collections.map(col => ({
+      ...col,
+      repoIds: col.repoIds ? JSON.parse(col.repoIds) : null,
+    }));
+    return c.json(parsed);
+  } catch (err: any) {
+    if (err instanceof HTTPException) throw err;
+    console.error("List collections error:", err);
+    return c.json({ error: "Failed to list collections" }, 500);
+  }
 });
 
 // Create collection
@@ -184,12 +191,18 @@ router.post("/", async (c) => {
 
 // Get single collection
 router.get("/:id", (c) => {
-  const ctx = requireAuth(c);
-  const id = parseInt(c.req.param("id"));
-  const collection = db.select().from(schema.collections).where(eq(schema.collections.id, id)).get();
-  assertOwnership(collection, ctx.workspace.id, "Collection");
-  const resp = { ...collection, repoIds: collection.repoIds ? JSON.parse(collection.repoIds) : null };
-  return c.json(resp);
+  try {
+    const ctx = requireAuth(c);
+    const id = parseInt(c.req.param("id"));
+    const collection = db.select().from(schema.collections).where(eq(schema.collections.id, id)).get();
+    assertOwnership(collection, ctx.workspace.id, "Collection");
+    const resp = { ...collection, repoIds: collection.repoIds ? JSON.parse(collection.repoIds) : null };
+    return c.json(resp);
+  } catch (err: any) {
+    if (err instanceof HTTPException) throw err;
+    console.error("Get collection error:", err);
+    return c.json({ error: "Failed to get collection" }, 500);
+  }
 });
 
 // Update collection (e.g., repo selection)
@@ -279,84 +292,102 @@ router.put("/:id", async (c) => {
 
 // Delete collection
 router.delete("/:id", (c) => {
-  const ctx = requireAuth(c);
-  const id = parseInt(c.req.param("id"));
-  const collection = db.select().from(schema.collections).where(eq(schema.collections.id, id)).get();
-  assertOwnership(collection, ctx.workspace.id, "Collection");
-  db.delete(schema.collections).where(eq(schema.collections.id, id)).run();
-  return c.json({ success: true });
+  try {
+    const ctx = requireAuth(c);
+    const id = parseInt(c.req.param("id"));
+    const collection = db.select().from(schema.collections).where(eq(schema.collections.id, id)).get();
+    assertOwnership(collection, ctx.workspace.id, "Collection");
+    db.delete(schema.collections).where(eq(schema.collections.id, id)).run();
+    return c.json({ success: true });
+  } catch (err: any) {
+    if (err instanceof HTTPException) throw err;
+    console.error("Delete collection error:", err);
+    return c.json({ error: "Failed to delete collection" }, 500);
+  }
 });
 
 // Get collection stats
 router.get("/:id/stats", (c) => {
-  const ctx = requireAuth(c);
-  const id = parseInt(c.req.param("id"));
-  const collection = db.select().from(schema.collections).where(eq(schema.collections.id, id)).get();
-  assertOwnership(collection, ctx.workspace.id, "Collection");
+  try {
+    const ctx = requireAuth(c);
+    const id = parseInt(c.req.param("id"));
+    const collection = db.select().from(schema.collections).where(eq(schema.collections.id, id)).get();
+    assertOwnership(collection, ctx.workspace.id, "Collection");
 
-  const commits = db.select().from(schema.commits).where(eq(schema.commits.collectionId, id)).all();
-  const analyses = db.select().from(schema.analyses).where(eq(schema.analyses.collectionId, id)).all();
+    const commits = db.select().from(schema.commits).where(eq(schema.commits.collectionId, id)).all();
+    const analyses = db.select().from(schema.analyses).where(eq(schema.analyses.collectionId, id)).all();
 
-  const repoIds = [...new Set(commits.map(c => c.repoId))];
-  const repos = repoIds
-    .map(rid => db.select().from(schema.repositories)
-      .where(and(eq(schema.repositories.id, rid), eq(schema.repositories.workspaceId, ctx.workspace.id)))
-      .get())
-    .filter(Boolean);
+    const repoIds = [...new Set(commits.map(c => c.repoId))];
+    const repos = repoIds
+      .map(rid => db.select().from(schema.repositories)
+        .where(and(eq(schema.repositories.id, rid), eq(schema.repositories.workspaceId, ctx.workspace.id)))
+        .get())
+      .filter(Boolean);
 
-  const totalCommits = commits.length;
-  const totalFiles = commits.reduce((s, c) => s + c.filesChanged, 0);
-  const totalInsertions = commits.reduce((s, c) => s + c.insertions, 0);
-  const totalDeletions = commits.reduce((s, c) => s + c.deletions, 0);
-  const uniqueAuthors = [...new Set(commits.map(c => c.authorName))];
-  const analyzedCount = analyses.filter(a => a.status === "completed").length;
-  const failedCount = analyses.filter(a => a.status === "failed").length;
+    const totalCommits = commits.length;
+    const totalFiles = commits.reduce((s, c) => s + c.filesChanged, 0);
+    const totalInsertions = commits.reduce((s, c) => s + c.insertions, 0);
+    const totalDeletions = commits.reduce((s, c) => s + c.deletions, 0);
+    const uniqueAuthors = [...new Set(commits.map(c => c.authorName))];
+    const analyzedCount = analyses.filter(a => a.status === "completed").length;
+    const failedCount = analyses.filter(a => a.status === "failed").length;
 
-  return c.json({
-    totalRepos: repos.length,
-    totalCommits,
-    totalFiles,
-    totalInsertions,
-    totalDeletions,
-    uniqueAuthors: uniqueAuthors.length,
-    analyzedCount,
-    failedCount,
-    totalAnalyses: analyses.length,
-  });
+    return c.json({
+      totalRepos: repos.length,
+      totalCommits,
+      totalFiles,
+      totalInsertions,
+      totalDeletions,
+      uniqueAuthors: uniqueAuthors.length,
+      analyzedCount,
+      failedCount,
+      totalAnalyses: analyses.length,
+    });
+  } catch (err: any) {
+    if (err instanceof HTTPException) throw err;
+    console.error("Get collection stats error:", err);
+    return c.json({ error: "Failed to get collection stats" }, 500);
+  }
 });
 
 // Get per-repo stats for a collection
 router.get("/:id/repo-stats", (c) => {
-  const ctx = requireAuth(c);
-  const id = parseInt(c.req.param("id"));
-  const collection = db.select().from(schema.collections).where(eq(schema.collections.id, id)).get();
-  assertOwnership(collection, ctx.workspace.id, "Collection");
+  try {
+    const ctx = requireAuth(c);
+    const id = parseInt(c.req.param("id"));
+    const collection = db.select().from(schema.collections).where(eq(schema.collections.id, id)).get();
+    assertOwnership(collection, ctx.workspace.id, "Collection");
 
-  const commits = db.select().from(schema.commits).where(eq(schema.commits.collectionId, id)).all();
+    const commits = db.select().from(schema.commits).where(eq(schema.commits.collectionId, id)).all();
 
-  // Group by repo
-  const byRepo = new Map<number, { repoId: number; commits: number; insertions: number; deletions: number }>();
-  for (const c of commits) {
-    const existing = byRepo.get(c.repoId);
-    if (existing) {
-      existing.commits += 1;
-      existing.insertions += c.insertions;
-      existing.deletions += c.deletions;
-    } else {
-      byRepo.set(c.repoId, { repoId: c.repoId, commits: 1, insertions: c.insertions, deletions: c.deletions });
+    // Group by repo
+    const byRepo = new Map<number, { repoId: number; commits: number; insertions: number; deletions: number }>();
+    for (const c of commits) {
+      const existing = byRepo.get(c.repoId);
+      if (existing) {
+        existing.commits += 1;
+        existing.insertions += c.insertions;
+        existing.deletions += c.deletions;
+      } else {
+        byRepo.set(c.repoId, { repoId: c.repoId, commits: 1, insertions: c.insertions, deletions: c.deletions });
+      }
     }
+
+    // Enrich with repo names and sort
+    const result = [...byRepo.values()].map((stat) => {
+      const repo = db.select().from(schema.repositories)
+        .where(and(eq(schema.repositories.id, stat.repoId), eq(schema.repositories.workspaceId, ctx.workspace.id)))
+        .get();
+      return { ...stat, repoName: repo?.name || `Repo #${stat.repoId}` };
+    }).sort((a, b) => b.commits - a.commits);
+
+    return c.json(result);
+  } catch (err: any) {
+    if (err instanceof HTTPException) throw err;
+    console.error("Get repo stats error:", err);
+    return c.json({ error: "Failed to get repo stats" }, 500);
   }
-
-  // Enrich with repo names and sort
-  const result = [...byRepo.values()].map((stat) => {
-    const repo = db.select().from(schema.repositories)
-      .where(and(eq(schema.repositories.id, stat.repoId), eq(schema.repositories.workspaceId, ctx.workspace.id)))
-      .get();
-    return { ...stat, repoName: repo?.name || `Repo #${stat.repoId}` };
-  }).sort((a, b) => b.commits - a.commits);
-
-  return c.json(result);
 });
 
 export { router as collectionsRouter };
-export { collectionDetailRouter } from "./collection-detail";
+export { collectionOperationsRouter } from "./collection-operations";

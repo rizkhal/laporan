@@ -226,4 +226,4 @@ router.post("/:id/generate-report", async (c) => {
   return c.json({ success: true, jobId: job.id });
 });
 
-export { router as collectionDetailRouter };
+export { router as collectionOperationsRouter };

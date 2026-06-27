@@ -4,6 +4,10 @@ import { db } from "../db/index";
 import * as schema from "../db/schema";
 import { eq, and, lt } from "drizzle-orm";
 import { hashToken, isSessionExpired } from "./crypto";
+import { slugify } from "./string";
+
+// Re-export for consumers that import from auth.ts
+export { slugify };
 
 export interface AuthUser {
   id: number;
@@ -24,7 +28,7 @@ export interface AuthWorkspace {
   name: string;
   slug: string;
   description: string | null;
-  ownerId: number;
+  currentUserId: number;
 }
 
 export interface AuthContext {
@@ -142,7 +146,7 @@ export function getCurrentWorkspace(c: Context, userId: number): AuthWorkspace {
     name: workspace.name,
     slug: workspace.slug,
     description: workspace.description,
-    ownerId: membership.userId, // member who queried — for ownership checks, use workspaceMembers with role=owner
+    currentUserId: membership.userId, // member who queried — for ownership checks, use workspaceMembers with role=owner
   };
 }
 
@@ -170,18 +174,5 @@ export function assertOwnership(
   if (resource.workspaceId !== undefined && resource.workspaceId !== workspaceId) {
     throw new HTTPException(404, { message: `${label} not found` });
   }
-}
-
-/**
- * Generate a URL-safe slug from a string.
- */
-export function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .trim()
-    .replace(/[^\w\s-]/g, "")
-    .replace(/[\s_]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    || "workspace";
+return;
 }

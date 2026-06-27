@@ -1,56 +1,12 @@
-import { db } from "../db/index";
-import * as schema from "../db/schema";
-import { eq, and, or } from "drizzle-orm";
-import { cloneRepo, resolveRepoPath, pullRepo, cleanStaleClone } from "./git-clone";
-import { collectRepoForCollection } from "./git-collector";
-import { runAnalysisForRepo } from "./llm-analyzer";
-import { getStrategy } from "./report-strategies";
-import { killGitExec } from "./git-exec";
-// ── Types ──
-
-export type JobType =
-  | "clone_repository"
-  | "refresh_repository"
-  | "collect_commits"
-  | "analyze_collection"
-  | "generate_report";
-
-export type JobStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
-
-export interface JobPayload {
-  repositoryId?: number;
-  collectionId?: number;
-  repoId?: number;
-  llmProviderId?: number;
-  style?: string;
-  [key: string]: any;
-}
-
-// ── Queue Helpers ──
-
-export function createJob(
-  workspaceId: number,
-  type: JobType,
-  payload: JobPayload,
-): typeof schema.jobs.$inferSelect {
-  const result = db
-    .insert(schema.jobs)
-    .values({
-      workspaceId,
-      type,
-      status: "queued",
-      progress: 0,
-      message: "",
-      payload: JSON.stringify(payload),
-    })
-    .returning()
-    .get();
-
-  // Start the runner if it isn't already running
-  ensureRunnerRunning();
-
-  return result;
-}
+import { db } from "../../db/index";
+import * as schema from "../../db/schema";
+import { eq, or } from "drizzle-orm";
+import { cloneRepo, resolveRepoPath, pullRepo, cleanStaleClone } from "../git-clone";
+import { collectRepoForCollection } from "../git-collector";
+import { runAnalysisForRepo } from "../llm-analyzer";
+import { getStrategy } from "../report-strategies";
+import { killGitExec } from "../git-exec";
+import type { JobType, JobPayload } from "./types";
 
 // Track spawned process execIds per job, so they can be killed on cancel
 const jobExecIds = new Map<number, string[]>();
@@ -78,17 +34,15 @@ export function killJobProcesses(jobId: number): void {
   }
 }
 
-// ── Job Runner ──
-
 let runnerInterval: ReturnType<typeof setInterval> | null = null;
 let running = false;
 
-function ensureRunnerRunning() {
+export function ensureRunnerRunning() {
   if (runnerInterval) return;
   runnerInterval = setInterval(processNextJob, 2000);
 }
 
-function stopRunner() {
+export function stopRunner() {
   if (runnerInterval) {
     clearInterval(runnerInterval);
     runnerInterval = null;
@@ -238,7 +192,7 @@ function isJobCancelled(jobId: number): boolean {
  * When a repo-related job is cancelled, reset the repository cloneStatus
  * so it doesn't stay stuck in "cloning" or "syncing" forever.
  */
-function resetReposForCancelledJob(job: typeof schema.jobs.$inferSelect): void {
+function resetReposForCancelledJob(job: any): void {
   if (job.type !== "clone_repository" && job.type !== "refresh_repository") return;
   try {
     const payload = JSON.parse(job.payload || "{}");
@@ -272,7 +226,7 @@ function resetReposForCancelledJob(job: typeof schema.jobs.$inferSelect): void {
 }
 
 async function executeJob(
-  job: typeof schema.jobs.$inferSelect,
+  job: any,
   payload: JobPayload,
 ): Promise<void> {
   const updateProgress = (progress: number, message: string) => {
@@ -284,7 +238,7 @@ async function executeJob(
       .run();
   };
 
-  switch (job.type) {
+  switch (job.type as JobType) {
     case "clone_repository": {
       // Re-check cancellation before starting
       if (isJobCancelled(job.id)) throw new Error("Job was cancelled");
@@ -457,8 +411,6 @@ async function executeJob(
       updateProgress(100, "Report generated successfully.");
       break;
     }
-
-
 
     default:
       throw new Error(`Unknown job type: ${job.type}`);

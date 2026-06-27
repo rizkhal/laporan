@@ -1,22 +1,10 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Moon, Sun, Github, FileText, Check, ChevronRight, Copy, Terminal, ArrowUpRight } from "lucide-react";
-
-function useLandingTheme() {
-  const [dark, setDark] = useState(() => {
-    if (typeof window === "undefined") return false;
-    const savedTheme = localStorage.getItem("theme");
-    return savedTheme === "dark" || (!savedTheme && window.matchMedia("(prefers-color-scheme: dark)").matches);
-  });
-
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", dark);
-    localStorage.setItem("theme", dark ? "dark" : "light");
-    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#14151a" : "#f9fafb");
-  }, [dark]);
-
-  return { dark, setDark };
-}
+import { Moon, Sun, FileText, Check, ChevronRight } from "lucide-react";
+import { CodeBlock } from "../components/docs/CodeBlock";
+import { InlineCode } from "../components/docs/InlineCode";
+import { FormattedAnswer } from "../components/docs/FormattedAnswer";
+import { Step } from "../components/docs/Step";
+import { DocLink } from "../components/docs/DocLink";
 
 const sections = [
   { id: "overview", title: "Overview" },
@@ -35,92 +23,22 @@ const sections = [
   { id: "faq", title: "FAQ" },
 ];
 
-function CodeBlock({ code, lang = "bash" }: { code: string; lang?: string }) {
-  const [copied, setCopied] = useState(false);
+// Component definitions are imported from ../components/docs/
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
+function useLandingTheme() {
+  const [dark, setDark] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const savedTheme = localStorage.getItem("theme");
+    return savedTheme === "dark" || (!savedTheme && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  });
 
-  return (
-    <div className="group relative my-4 overflow-hidden rounded-xl border border-border bg-muted/50 dark:bg-black/25">
-      <div className="flex items-center justify-between border-b border-border/50 px-4 py-2">
-        <span className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">{lang}</span>
-        <button
-          type="button"
-          onClick={handleCopy}
-          className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-medium text-muted-foreground opacity-0 transition-all hover:bg-muted-foreground/10 group-hover:opacity-100"
-        >
-          {copied ? (
-            <><Check className="size-3 text-success" /> Copied</>
-          ) : (
-            <><Copy className="size-3" /> Copy</>
-          )}
-        </button>
-      </div>
-      <div className="overflow-x-auto p-4">
-        <pre className="font-mono text-sm leading-6 text-foreground">
-          <code>{code}</code>
-        </pre>
-      </div>
-    </div>
-  );
-}
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", dark);
+    localStorage.setItem("theme", dark ? "dark" : "light");
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#14151a" : "#f9fafb");
+  }, [dark]);
 
-function InlineCode({ children }: { children: React.ReactNode }) {
-  return (
-    <code className="rounded-md border border-border bg-muted px-1.5 py-0.5 font-mono text-[13px] text-foreground">
-      {children}
-    </code>
-  );
-}
-
-/**
- * Safely render FAQ answer strings that may contain <InlineCode> tags.
- * Replaces dangerouslySetInnerHTML with a parser that converts
- * <InlineCode>x</InlineCode> into the InlineCode React component.
- */
-function FormattedAnswer({ text }: { text: string }) {
-  const parts = text.split(/(<InlineCode>.*?<\/InlineCode>)/g);
-  return (
-    <>
-      {parts.map((part, i) => {
-        const match = part.match(/<InlineCode>(.*?)<\/InlineCode>/);
-        if (match) {
-          return <InlineCode key={i}>{match[1]}</InlineCode>;
-        }
-        return <span key={i}>{part}</span>;
-      })}
-    </>
-  );
-}
-
-function Step({ number, title, desc }: { number: string; title: string; desc: string }) {
-  return (
-    <li className="flex gap-4">
-      <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg border border-border bg-card text-[11px] font-mono font-medium text-muted-foreground">
-        {number}
-      </span>
-      <div>
-        <p className="font-medium text-foreground">{title}</p>
-        <p className="mt-0.5 text-sm leading-6 text-muted-foreground">{desc}</p>
-      </div>
-    </li>
-  );
-}
-
-function DocLink({ href, children }: { href: string; children: React.ReactNode }) {
-  return (
-    <a
-      href={href}
-      className="inline-flex items-center gap-1 font-medium text-primary underline underline-offset-2 decoration-primary/30 hover:decoration-primary"
-    >
-      {children}
-      <ArrowUpRight className="size-3" />
-    </a>
-  );
+  return { dark, setDark };
 }
 
 export default function Docs() {

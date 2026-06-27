@@ -111,7 +111,6 @@ export const llmProviders = sqliteTable("llm_providers", {
   baseUrl: text("base_url").notNull(),
   apiKey: text("api_key").notNull(),
   model: text("model").notNull(),
-  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
   updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
 });
@@ -155,17 +154,6 @@ export const collectionRepos = sqliteTable("collection_repos", {
   month: integer("month").notNull(),
 });
 
-// ── Shared Reports (public share links) ──
-export const sharedReports = sqliteTable("shared_reports", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  reportId: integer("report_id").notNull().references(() => reports.id, { onDelete: "cascade" }),
-  slug: text("slug").notNull().unique(),
-  visibility: text("visibility").notNull().default("public"), // public | protected
-  passwordHash: text("password_hash"),
-  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
-  updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
-});
-
 // ── Generated Reports ──
 export const reports = sqliteTable("reports", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -176,6 +164,17 @@ export const reports = sqliteTable("reports", {
   content: text("content").notNull(), // Markdown
   isEdited: integer("is_edited", { mode: "boolean" }).notNull().default(false),
 
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
+});
+
+// ── Shared Reports (public share links) ──
+export const sharedReports = sqliteTable("shared_reports", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  reportId: integer("report_id").notNull().references(() => reports.id, { onDelete: "cascade" }),
+  slug: text("slug").notNull().unique(),
+  visibility: text("visibility").notNull().default("public"), // public | protected
+  passwordHash: text("password_hash"),
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
   updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
 });

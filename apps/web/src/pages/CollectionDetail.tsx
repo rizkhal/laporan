@@ -4,32 +4,20 @@ import { useNavigate, useParams } from "react-router-dom";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/Button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
-import { apiFetch, apiUrl, getActiveWorkspaceId } from "../lib/utils";
+import { apiFetch, getActiveWorkspaceId } from "../lib/utils";
+import { renderMarkdown, parseJson } from "../lib/markdown-renderer";
+import { Metric, CommitEvidence, WorkItemCard, EmptyState } from "../components/report-components";
+import { downloadReportFile } from "../lib/download";
+import { useClickOutside } from "../hooks/use-click-outside";
+import { ShareDialog } from "../components/share-dialog";
+import type { Collection, Analysis, Report, Repo, LlmProvider, Commit } from "../lib/types";
 import {
   ArrowLeft, ArrowRight, Bot, Check, ChevronDown, ChevronRight, Clipboard,
-  Columns2, FileCode2, FileText, GitBranch, GitCommit,
-  Globe, Loader2, Lock, Monitor, Pencil, Save, Settings2, Share2, Sparkles, FileDown,
+  Columns2, FileCode2, FileDown, FileText, GitBranch, GitCommit,
+  Loader2, Monitor, Pencil, Save, Settings2, Share2, Sparkles,
 } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../components/ui/dialog";
-import { Label } from "../components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { Input } from "../components/ui/Input";
-
-interface Collection { id: number; year: number; month: number; title: string; status: string; repoIds: number[] | null; }
-interface Commit {
-  id: number; repoId: number; hash: string; authorName: string; date: string; message: string;
-  filesChanged: number; insertions: number; deletions: number; patchSnippets: string; changedFiles: string;
-}
-interface Analysis {
-  id: number; repoId: number; status: string; workItems: string; category: string;
-  summary: string; impact: string; risks: string; nextSuggestions: string; isEdited: boolean; error: string;
-}
-interface Report { id: number; title: string; content: string; style?: string; isEdited: boolean; updatedAt?: string; }
-interface Repo { id: number; name: string; }
-interface LlmProvider { id: number; name: string; model: string; }
-
-function parseJson<T>(value: string | null | undefined, fallback: T): T {
-  try { return JSON.parse(value || "") as T; } catch { return fallback; }
-}
 
 const statusVariant: Record<string, "default" | "secondary" | "success" | "warning" | "destructive"> = {
   draft: "secondary", collecting: "default", completed: "default",
@@ -59,26 +47,11 @@ export default function CollectionDetail() {
   const [repoEditOpen, setRepoEditOpen] = useState(false);
   const [editRepoIds, setEditRepoIds] = useState<number[] | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
-  const [shareInfo, setShareInfo] = useState<{ slug: string; visibility: string; url: string } | null>(null);
-  const [shareVisibility, setShareVisibility] = useState<"public" | "protected">("public");
-  const [sharePassword, setSharePassword] = useState("");
-  const [shareBusy, setShareBusy] = useState(false);
-  const [shareCopied, setShareCopied] = useState(false);
-    const [downloadOpen, setDownloadOpen] = useState(false);
-    const downloadRef = useRef<HTMLDivElement>(null);
-    const { addToast, removeToast } = useToast();
+  const [downloadOpen, setDownloadOpen] = useState(false);
+  const downloadRef = useRef<HTMLDivElement>(null);
+  const { addToast, removeToast } = useToast();
 
-    // Close download dropdown on outside click
-    useEffect(() => {
-      if (!downloadOpen) return;
-      const handleClick = (e: MouseEvent) => {
-        if (downloadRef.current && !downloadRef.current.contains(e.target as Node)) {
-          setDownloadOpen(false);
-        }
-      };
-      document.addEventListener("mousedown", handleClick);
-      return () => document.removeEventListener("mousedown", handleClick);
-    }, [downloadOpen]);
+  useClickOutside(downloadRef, () => setDownloadOpen(false), downloadOpen);
 
   async function loadAll() {
     try {
@@ -192,63 +165,6 @@ export default function CollectionDetail() {
     }
   }
 
-  // ── Share link ──
-  async function loadShareInfo() {
-    if (!report) return;
-    try {
-      const data = await apiFetch<{ slug: string; visibility: string; url: string } | null>(`/reports/${collectionId}/share`);
-      setShareInfo(data);
-      if (data) {
-        setShareVisibility(data.visibility as "public" | "protected");
-      }
-    } catch {}
-  }
-
-  async function handleShare() {
-    if (!report) return;
-    try {
-      setShareBusy(true);
-      const data = await apiFetch<{ slug: string; visibility: string; url: string }>(`/reports/${collectionId}/share`, {
-        method: "POST",
-        body: JSON.stringify({
-          visibility: shareVisibility,
-          password: shareVisibility === "protected" ? sharePassword : undefined,
-        }),
-      });
-      setShareInfo(data);
-      addToast({ type: "success", title: "Share link created" });
-    } catch (err: any) {
-      addToast({ type: "error", title: "Failed to create share link", description: err.message });
-    } finally {
-      setShareBusy(false);
-    }
-  }
-
-  async function handleDeleteShare() {
-    try {
-      setShareBusy(true);
-      await apiFetch(`/reports/${collectionId}/share`, { method: "DELETE" });
-      setShareInfo(null);
-      setSharePassword("");
-      addToast({ type: "success", title: "Share link deleted" });
-    } catch (err: any) {
-      addToast({ type: "error", title: "Failed to delete share link", description: err.message });
-    } finally {
-      setShareBusy(false);
-    }
-  }
-
-  // Load share info when report becomes available
-  useEffect(() => {
-    if (report) loadShareInfo();
-  }, [report?.id]);
-
-  const shareUrl = shareInfo ? `${window.location.origin}/share/${shareInfo.slug}` : "";
-
-
-
-
-
   const repoMap = useMemo(() => new Map(repos.map((repo) => [repo.id, repo])), [repos]);
   const selectedCommits = commits.filter((commit) => !selectedRepo || commit.repoId === selectedRepo);
   const totalFiles = commits.reduce((total, commit) => total + commit.filesChanged, 0);
@@ -260,7 +176,6 @@ export default function CollectionDetail() {
   const analysisComplete = analyses.length > 0 && analyses.every((analysis) => analysis.status === "completed");
   const currentPhase = report ? 3 : analysisComplete ? 2 : 1;
 
-  // Only show repos that belong to this collection
   const collectionRepos = collection?.repoIds
     ? repos.filter(r => collection.repoIds?.includes(r.id))
     : repos;
@@ -475,79 +390,73 @@ export default function CollectionDetail() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div><h2 className="font-semibold tracking-[-0.02em]">Report editor</h2><p className="mt-0.5 text-xs text-muted-foreground">{report.isEdited ? "Edited manually" : "Generated from analysis"}</p></div>
                 <div className="flex flex-wrap gap-2">
-                  <Button size="sm" variant="outline" onClick={() => setReportMode((mode) => mode === "split" ? "preview" : "split")}>{reportMode === "split" ? <Monitor className="size-3.5" /> : <Columns2 className="size-3.5" />} {reportMode === "split" ? "Preview only" : "Split view"}</Button>
-                  <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(reportDraft); setCopied(true); setTimeout(() => setCopied(false), 2000); }}>{copied ? <Check className="size-3.5 text-success-foreground" /> : <Clipboard />} {copied ? "Copied!" : "Copy"}</Button>
+                  <Button size="sm" variant="outline" onClick={() => setReportMode((mode) => mode === "split" ? "preview" : "split")}>
+                    {reportMode === "split" ? <Monitor className="size-3.5" /> : <Columns2 className="size-3.5" />} {reportMode === "split" ? "Preview only" : "Split view"}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(reportDraft); setCopied(true); setTimeout(() => setCopied(false), 2000); }}>
+                    {copied ? <Check className="size-3.5 text-success-foreground" /> : <Clipboard />} {copied ? "Copied!" : "Copy"}
+                  </Button>
                   <div ref={downloadRef} className="relative">
-                                      <Button size="sm" variant="outline" onClick={() => setDownloadOpen((o) => !o)}>
-                                        <FileDown className="size-3.5" /> Download <ChevronDown className="size-3" />
-                                      </Button>
-                                      {downloadOpen && (
-                                        <div className="absolute right-0 top-full mt-1 min-w-[180px] overflow-hidden rounded-xl border bg-card shadow-xl shadow-black/10 dark:shadow-black/30 z-50">
-                                          <button type="button" onClick={async () => {
-                                                                                      setDownloadOpen(false);
-                                                                                      if (!report) return;
-                                                                                      const loadingId = addToast({ type: 'loading', title: 'Downloading markdown...' });
-                                                                                      try {
-                                                                                        const token = localStorage.getItem('auth_token');
-                                                                                        const wsId = getActiveWorkspaceId();
-                                                                                        const res = await fetch(apiUrl(`/reports/${report.id}/download/markdown`), {
-                                                                                          headers: { 'Authorization': `Bearer ${token}`, ...(wsId ? { 'X-Workspace-Id': String(wsId) } : {}) },
-                                                                                        });
-                                                                                        if (!res.ok) { removeToast(loadingId); const body = await res.text().catch(()=>''); addToast({ type: 'error', title: 'Download failed', description: body || res.statusText }); return; }
-                                                                                        const blob = await res.blob();
-                                                                                        const url = URL.createObjectURL(blob);
-                                                                                        const a = document.createElement('a');
-                                                                                        a.href = url; a.download = `laporan-kemajuan-pekerjaan-${collection?.title || 'report'}.md`;
-                                                                                        document.body.appendChild(a); a.click();
-                                                                                        a.remove(); URL.revokeObjectURL(url);
-                                                                                        removeToast(loadingId);
-                                                                                        addToast({ type: 'success', title: 'Downloaded', description: 'Markdown file downloaded' });
-                                                                                      } catch (e) { removeToast(loadingId); addToast({ type: 'error', title: 'Download failed', description: String(e) }); }
-                                                                                    }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-accent transition-colors first:rounded-t-xl last:rounded-b-xl">
-                                            <FileCode2 className="size-3.5" /> Markdown (.md)
-                                          </button>
-                                          <div className="h-px bg-border" />
-                                          <button type="button" onClick={async () => {
-                                                                                      setDownloadOpen(false);
-                                                                                      if (!report) return;
-                                                                                      const loadingId = addToast({ type: 'loading', title: 'Downloading DOCX...' });
-                                                                                      try {
-                                                                                        const token = localStorage.getItem('auth_token');
-                                                                                        const wsId = getActiveWorkspaceId();
-                                                                                        const res = await fetch(apiUrl(`/reports/${report.id}/export.docx`), {
-                                                                                          headers: { 'Authorization': `Bearer ${token}`, ...(wsId ? { 'X-Workspace-Id': String(wsId) } : {}) },
-                                                                                        });
-                                                                                        if (!res.ok) { removeToast(loadingId); const body = await res.text().catch(()=>''); addToast({ type: 'error', title: 'Download failed', description: body || res.statusText }); return; }
-                                                                                        const blob = await res.blob();
-                                                                                        const url = URL.createObjectURL(blob);
-                                                                                        const a = document.createElement('a');
-                                                                                        a.href = url; a.download = `laporan-kemajuan-pekerjaan-${collection?.title || 'report'}.docx`;
-                                                                                        document.body.appendChild(a); a.click();
-                                                                                        a.remove(); URL.revokeObjectURL(url);
-                                                                                        removeToast(loadingId);
-                                                                                        addToast({ type: 'success', title: 'Downloaded', description: 'DOCX file downloaded' });
-                                                                                      } catch (e) { removeToast(loadingId); addToast({ type: 'error', title: 'Download failed', description: String(e) }); }
-                                                                                    }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-accent transition-colors first:rounded-t-xl last:rounded-b-xl">
-                                            <FileDown className="size-3.5" /> Word (.docx)
-                                          </button>
-                                        </div>
-                                      )}
-                                    </div>
+                    <Button size="sm" variant="outline" onClick={() => setDownloadOpen((o) => !o)}>
+                      <FileDown className="size-3.5" /> Download <ChevronDown className="size-3" />
+                    </Button>
+                    {downloadOpen && (
+                      <div className="absolute right-0 top-full mt-1 min-w-[180px] overflow-hidden rounded-xl border bg-card shadow-xl shadow-black/10 dark:shadow-black/30 z-50">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDownloadOpen(false);
+                            if (report) downloadReportFile({
+                              reportId: report.id,
+                              filename: `laporan-kemajuan-pekerjaan-${collection?.title || 'report'}.md`,
+                              apiPath: `/reports/${report.id}/download/markdown`,
+                              addToast, removeToast,
+                            });
+                          }}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-accent transition-colors first:rounded-t-xl last:rounded-b-xl"
+                        >
+                          <FileCode2 className="size-3.5" /> Markdown (.md)
+                        </button>
+                        <div className="h-px bg-border" />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDownloadOpen(false);
+                            if (report) downloadReportFile({
+                              reportId: report.id,
+                              filename: `laporan-kemajuan-pekerjaan-${collection?.title || 'report'}.docx`,
+                              apiPath: `/reports/${report.id}/export.docx`,
+                              addToast, removeToast,
+                            });
+                          }}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-accent transition-colors first:rounded-t-xl last:rounded-b-xl"
+                        >
+                          <FileText className="size-3.5" /> DOCX (.docx)
+                        </button>
+                      </div>
+                    )}
+                  </div>
                   <Button size="sm" variant="outline" onClick={() => setShareOpen(true)}><Share2 className="size-3.5" /> Share</Button>
-                  <Button size="sm" onClick={saveReport} disabled={busy === "save" || reportDraft === report.content}>{busy === "save" ? <Loader2 className="animate-spin" /> : <Save />} Save</Button>
+                  <Button size="sm" onClick={saveReport} disabled={busy === "save"}>
+                    {busy === "save" ? <Loader2 className="animate-spin" /> : <Save className="size-3.5" />} Save
+                  </Button>
                 </div>
               </div>
-              <div className={`grid min-h-[680px] overflow-hidden rounded-xl border bg-card ${reportMode === "split" ? "lg:grid-cols-2" : ""}`}>
-                {reportMode === "split" && (
-                  <div className="flex min-h-[680px] flex-col border-b lg:border-b-0 lg:border-r">
-                    <div className="flex h-11 items-center border-b px-4 text-xs font-medium text-muted-foreground"><Pencil className="mr-2 size-3.5" /> Markdown</div>
-                    <textarea value={reportDraft} onChange={(event) => setReportDraft(event.target.value)} className="min-h-0 flex-1 resize-none bg-card p-6 font-mono text-sm leading-7 text-foreground outline-none placeholder:text-muted-foreground dark:bg-black/15" />
+
+              <div className="surface overflow-hidden rounded-xl">
+                {reportMode === "preview" ? (
+                  <article className="report-prose mx-auto max-w-3xl px-7 py-10 sm:px-12">{renderMarkdown(reportDraft)}</article>
+                ) : (
+                  <div className="grid xl:grid-cols-2">
+                    <textarea
+                      value={reportDraft}
+                      onChange={(e) => setReportDraft(e.target.value)}
+                      className="min-h-[70dvh] resize-none border-r border-border bg-card p-6 font-mono text-sm leading-6 text-foreground outline-none focus:bg-muted/20"
+                      placeholder="Report content will appear here..."
+                    />
+                    <article className="report-prose mx-auto max-w-3xl px-7 py-10 sm:px-12">{renderMarkdown(reportDraft)}</article>
                   </div>
                 )}
-                <div className="min-w-0">
-                  <div className="sticky top-0 flex h-11 items-center border-b bg-card px-4 text-xs font-medium text-muted-foreground"><FileText className="mr-2 size-3.5" /> Preview</div>
-                  <article className="report-prose mx-auto max-w-3xl px-7 py-10 sm:px-12">{renderMarkdown(reportDraft)}</article>
-                </div>
               </div>
             </div>
           )}
@@ -586,310 +495,14 @@ export default function CollectionDetail() {
       </Dialog>
 
       {/* Share dialog */}
-      <Dialog open={shareOpen} onOpenChange={setShareOpen}>
-        <DialogContent className="max-w-md rounded-2xl">
-          <DialogHeader><DialogTitle>Share report</DialogTitle>
-            <DialogDescription className="text-xs">Create a public link to share this report with others.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            {shareInfo ? (
-              <>
-                <div className="rounded-xl border border-border bg-card p-3">
-                  <p className="text-xs font-medium text-muted-foreground">Share URL</p>
-                  <div className="mt-1.5 flex items-center gap-2">
-                    <code className="flex-1 truncate rounded-lg bg-muted px-2 py-1 font-mono text-xs">{shareUrl}</code>
-                    <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(shareUrl); setShareCopied(true); setTimeout(() => setShareCopied(false), 2000); }}>
-                      {shareCopied ? <Check className="size-3.5" /> : <Clipboard className="size-3.5" />}
-                    </Button>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 rounded-xl border border-border bg-card p-3">
-                  {shareInfo.visibility === "protected" ? <Lock className="size-4 text-muted-foreground" /> : <Globe className="size-4 text-muted-foreground" />}
-                  <span className="text-sm text-muted-foreground">{shareInfo.visibility === "protected" ? "Password protected" : "Public"}</span>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <Button variant="destructive" size="sm" onClick={handleDeleteShare} disabled={shareBusy}>Delete link</Button>
-                  <Button size="sm" onClick={() => { setShareOpen(false); }}>Close</Button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="flex gap-3">
-                  <button type="button" onClick={() => setShareVisibility("public")} className={`flex flex-1 items-center justify-center gap-2 rounded-xl border p-3 text-sm ${shareVisibility === "public" ? "border-primary/40 bg-primary/5 font-medium" : "hover:bg-muted"}`}>
-                    <Globe className="size-4" /> Public
-                  </button>
-                  <button type="button" onClick={() => setShareVisibility("protected")} className={`flex flex-1 items-center justify-center gap-2 rounded-xl border p-3 text-sm ${shareVisibility === "protected" ? "border-primary/40 bg-primary/5 font-medium" : "hover:bg-muted"}`}>
-                    <Lock className="size-4" /> Protected
-                  </button>
-                </div>
-                {shareVisibility === "protected" && (
-                  <div className="space-y-2">
-                    <Label htmlFor="share-password">Password</Label>
-                    <Input id="share-password" type="password" placeholder="Enter a password" value={sharePassword} onChange={(e) => setSharePassword(e.target.value)} />
-                  </div>
-                )}
-                <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => setShareOpen(false)}>Cancel</Button>
-                  <Button onClick={handleShare} disabled={shareBusy || (shareVisibility === "protected" && !sharePassword)}>
-                    {shareBusy ? <Loader2 className="animate-spin" /> : <Share2 className="size-4" />} Generate link
-                  </Button>
-                </div>
-              </>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
-function Metric({ label, value, icon: Icon, tone }: { label: string; value: string | number; icon: typeof GitCommit; tone?: "positive" | "negative" }) {
-  return <div className="surface rounded-xl p-5"><div className="flex items-center justify-between"><p className="text-xs font-medium text-muted-foreground">{label}</p><Icon className="size-4 text-muted-foreground" /></div><p className={`mt-5 font-mono text-2xl font-semibold ${tone === "positive" ? "text-success-foreground" : tone === "negative" ? "text-destructive" : ""}`}>{value}</p></div>;
-}
-
-function CommitEvidence({ commit }: { commit: Commit }) {
-  const files = parseJson<string[]>(commit.changedFiles, []);
-  const snippets = parseJson<{ file: string; patch: string }[]>(commit.patchSnippets, []);
-  return (
-    <div className="border-t bg-muted/20 px-5 py-5">
-      <div className="flex flex-wrap gap-1.5">{files.map((file) => <Badge key={file} variant="outline" className="font-mono font-normal">{file}</Badge>)}</div>
-      <div className="mt-4 space-y-3">
-        {snippets.slice(0, 4).map((snippet) => (
-          <details key={snippet.file} className="overflow-hidden rounded-xl border bg-card dark:border-white/[0.07] dark:bg-white/[0.025]">
-            <summary className="cursor-pointer px-4 py-3 font-mono text-xs font-medium">{snippet.file}</summary>
-            <pre className="diff-block max-h-80 overflow-auto border-t p-4 font-mono text-[11px] leading-5">
-              {snippet.patch.split("\n").map((line, index) => <span key={index} className={`block ${line.startsWith("+") ? "diff-add" : line.startsWith("-") ? "diff-del" : line.startsWith("@@") ? "diff-hunk" : ""}`}>{line || " "}</span>)}
-            </pre>
-          </details>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function WorkItemCard({ item, repoName }: { item: any; repoName: string }) {
-  const title = item.judul || item.title || "Untitled finding";
-  const description = item.deskripsi || item.description || "";
-  const impact = item.dampak || item.impact || "low";
-  const confidence = item.keyakinan || item.confidence || "medium";
-  const category = item.kategori || item.category || "other";
-  const evidence = item.bukti || item.evidence || [];
-  const confidenceVariant = ["tinggi", "high"].includes(String(confidence).toLowerCase()) ? "success" : "secondary";
-  const impactVariant = ["tinggi", "high"].includes(String(impact).toLowerCase()) ? "warning" : "secondary";
-  return (
-    <article className="surface rounded-xl p-5 sm:p-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{category}</Badge><span className="flex items-center gap-1 text-xs text-muted-foreground"><GitBranch className="size-3" /> {repoName}</span></div>
-          <h3 className="mt-3 text-lg font-semibold tracking-[-0.025em]">{title}</h3>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p>
-        </div>
-        <div className="flex shrink-0 gap-2"><Badge variant={impactVariant}>Impact: {impact}</Badge><Badge variant={confidenceVariant}>Confidence: {confidence}</Badge></div>
-      </div>
-      {evidence.length > 0 && (
-        <div className="mt-5 rounded-xl bg-muted/55 p-4">
-          <p className="flex items-center gap-2 text-xs font-semibold"><FileCode2 className="size-3.5 text-muted-foreground" /> Supporting evidence</p>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            {evidence.map((item: any, index: number) => (
-              <div key={index} className="flex items-center gap-2 rounded-lg bg-background px-3 py-2 font-mono text-[11px] dark:bg-black/20">
-                <code className="text-primary">{String(item.hashCommit || item.commitHash || "").slice(0, 7)}</code>
-                <span className="truncate text-muted-foreground">{item.berkas || item.file || "Commit evidence"}</span>
-              </div>
-            ))}
-          </div>
-        </div>
+      {report && (
+        <ShareDialog
+          open={shareOpen}
+          onOpenChange={setShareOpen}
+          collectionId={collectionId}
+          reportId={report.id}
+        />
       )}
-    </article>
+    </div>
   );
-}
-
-function EmptyState({ icon: Icon, title, description, children }: { icon: typeof Bot; title: string; description: string; children: React.ReactNode }) {
-  return <div className="surface rounded-xl px-6 py-16 text-center"><span className="mx-auto grid size-12 place-items-center rounded-xl bg-muted text-muted-foreground"><Icon className="size-5" /></span><h2 className="mt-4 font-semibold">{title}</h2><p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">{description}</p><div className="mt-5">{children}</div></div>;
-}
-
-function renderMarkdown(content: string) {
-  const lines = content.split("\n");
-  const elements: React.ReactNode[] = [];
-  let inCodeBlock = false;
-  let codeBlockContent: string[] = [];
-  let tableRows: string[][] | null = null;
-
-  function flushTable() {
-    if (!tableRows || tableRows.length < 2) {
-      tableRows = null;
-      return;
-    }
-    // Second row is the separator
-    const headerCells = tableRows[0];
-    const bodyRows = tableRows.slice(2);
-    const colCount = headerCells.length;
-
-    elements.push(
-      <div key={`table-${elements.length}`} className="my-4 w-full overflow-x-auto">
-        <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr className="border-b border-border bg-muted/50">
-              {headerCells.map((cell, ci) => (
-                <th key={ci} className="whitespace-nowrap px-3 py-2 text-left text-xs font-semibold text-muted-foreground">{inlineMarkdown(cell.trim())}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {bodyRows.map((row, ri) => (
-              <tr key={ri} className="border-b border-border last:border-b-0 hover:bg-muted/25">
-                {Array.from({ length: colCount }).map((_, ci) => (
-                  <td key={ci} className={`px-3 py-1.5 text-xs ${ci === 0 ? "font-medium text-foreground" : "text-muted-foreground"} ${ci > 0 && ci < colCount - 1 ? "whitespace-nowrap" : ""}`}>
-                    {inlineMarkdown(row[ci]?.trim() || "")}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>,
-    );
-    tableRows = null;
-  }
-
-  for (let index = 0; index < lines.length; index++) {
-    const line = lines[index];
-
-    // Code block toggle
-    if (line.trim().startsWith("```")) {
-      flushTable();
-      if (inCodeBlock) {
-        elements.push(<pre key={`code-${index}`} className="my-4 overflow-x-auto rounded-xl border bg-muted/50 p-4 font-mono text-[11px] leading-5 dark:bg-black/20"><code>{codeBlockContent.join("\n")}</code></pre>);
-        codeBlockContent = [];
-        inCodeBlock = false;
-        continue;
-      }
-      inCodeBlock = true;
-      continue;
-    }
-    if (inCodeBlock) {
-      codeBlockContent.push(line);
-      continue;
-    }
-
-    // Check for special markers first
-    const trimmed = line.trim();
-
-    if (trimmed === "<!-- PAGE_BREAK -->") {
-      flushTable();
-      elements.push(<div key={index} className="my-4 flex items-center gap-2 text-xs text-muted-foreground/50"><hr className="flex-1 border-dashed border-muted-foreground/20" /><span className="italic">Page break</span><hr className="flex-1 border-dashed border-muted-foreground/20" /></div>);
-      continue;
-    }
-
-    // Horizontal rule
-    if (line.trim() === "---") {
-      flushTable();
-      elements.push(<hr key={index} className="my-6 border-border" />);
-      continue;
-    }
-
-    // Empty line
-    if (!line.trim()) {
-      flushTable();
-      elements.push(<div key={index} className="h-3" />);
-      continue;
-    }
-
-    // Table row detection
-    if (line.trim().startsWith("|") && line.trim().endsWith("|")) {
-      const pipeRe = /(?:\|([^|]*)\|)/g;
-      let match;
-      const cells: string[] = [];
-      // Use a simpler split approach
-      const parts = line.trim().split("|").filter((_, i, arr) => i > 0 && i < arr.length - 1);
-      tableRows = tableRows || [];
-      tableRows.push(parts.map(p => p.trim()));
-      continue;
-    }
-
-    // Not a table row — flush any pending table
-    if (tableRows) {
-      flushTable();
-    }
-
-    // H1 with bold: `# **text**`
-    const h1BoldMatch = line.match(/^# \*\*(.+)\*\*$/);
-    if (h1BoldMatch) {
-      elements.push(<h1 key={index} className="text-center text-2xl font-bold tracking-tight">{inlineMarkdown(h1BoldMatch[1])}</h1>);
-      continue;
-    }
-
-    // H1
-    if (line.startsWith("# ") && !line.startsWith("## ")) {
-      elements.push(<h1 key={index}>{inlineMarkdown(line.slice(2))}</h1>);
-      continue;
-    }
-
-    // H4 (####)
-    if (line.startsWith("#### ")) {
-      elements.push(<h4 key={index} className="scroll-m-20 text-sm font-semibold tracking-tight text-muted-foreground">{inlineMarkdown(line.slice(5))}</h4>);
-      continue;
-    }
-
-    // H3
-    if (line.startsWith("### ")) {
-      elements.push(<h3 key={index}>{inlineMarkdown(line.slice(4))}</h3>);
-      continue;
-    }
-
-    // H2
-    if (line.startsWith("## ")) {
-      elements.push(<h2 key={index}>{inlineMarkdown(line.slice(3))}</h2>);
-      continue;
-    }
-
-    // Ordered list `1. item` or `a. item` or `i. item`
-    const orderedMatch = line.match(/^(\s*)(\d+|[a-i])\.\s+(.*)$/);
-    if (orderedMatch) {
-      const [, indent, num, text] = orderedMatch;
-      const depth = Math.floor(indent.length / 2);
-      elements.push(
-        <div key={index} className={`flex gap-2 ${depth > 0 ? "ml-6" : ""}`}>
-          <span className="mt-px shrink-0 font-medium text-foreground">{num}.</span>
-          <span>{inlineMarkdown(text)}</span>
-        </div>,
-      );
-      continue;
-    }
-
-    // Unordered list `- text`
-    const unorderedMatch = line.match(/^(\s*)[-*]\s+(.*)$/);
-    if (unorderedMatch) {
-      const [, indent, text] = unorderedMatch;
-      const depth = Math.floor(indent.length / 2);
-      elements.push(
-        <div key={index} className={`flex gap-2 ${depth > 0 ? (depth > 1 ? "ml-12" : "ml-6") : ""}`}>
-          <span className="mt-px shrink-0 text-muted-foreground">{depth > 0 ? "\u02d9" : "\u2022"}</span>
-          <span>{inlineMarkdown(text)}</span>
-        </div>,
-      );
-      continue;
-    }
-
-    // Regular paragraph
-    elements.push(<p key={index}>{inlineMarkdown(line)}</p>);
-  }
-
-  // Flush any remaining table
-  if (tableRows) {
-    flushTable();
-  }
-
-  return elements;
-}
-
-function inlineMarkdown(text: string) {
-  // Match **bold**, *italic*, `code`, and _italic_
-  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|_[^_]+_)/g);
-  return parts.map((part, index) => {
-    if (part.startsWith("**") && part.endsWith("**")) return <strong key={index}>{part.slice(2, -2)}</strong>;
-    if (part.startsWith("*") && part.endsWith("*") && !part.startsWith("**")) return <em key={index}>{part.slice(1, -1)}</em>;
-    if (part.startsWith("`") && part.endsWith("`")) return <code key={index} className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">{part.slice(1, -1)}</code>;
-    if (part.startsWith("_") && part.endsWith("_")) return <em key={index}>{part.slice(1, -1)}</em>;
-    return part;
-  });
 }

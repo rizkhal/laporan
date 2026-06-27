@@ -16,34 +16,40 @@ const router = new Hono();
 
 // List all workspaces the user belongs to
 router.get("/", (c) => {
-  const { user } = requireUser(c);
-  const memberships = db
-    .select()
-    .from(schema.workspaceMembers)
-    .where(eq(schema.workspaceMembers.userId, user.id))
-    .all();
+  try {
+    const { user } = requireUser(c);
+    const memberships = db
+      .select()
+      .from(schema.workspaceMembers)
+      .where(eq(schema.workspaceMembers.userId, user.id))
+      .all();
 
-  const workspaceIds = memberships.map(m => m.workspaceId);
-  if (workspaceIds.length === 0) return c.json([]);
+    const workspaceIds = memberships.map(m => m.workspaceId);
+    if (workspaceIds.length === 0) return c.json([]);
 
-  const workspaces = db
-    .select()
-    .from(schema.workspaces)
-    .where(inArray(schema.workspaces.id, workspaceIds))
-    .all();
+    const workspaces = db
+      .select()
+      .from(schema.workspaces)
+      .where(inArray(schema.workspaces.id, workspaceIds))
+      .all();
 
-  const result = workspaces.map(w => {
-    const member = memberships.find(m => m.workspaceId === w.id);
-    return {
-      id: w.id,
-      name: w.name,
-      slug: w.slug,
-      description: w.description,
-      role: member?.role || "member",
-    };
-  });
+    const result = workspaces.map(w => {
+      const member = memberships.find(m => m.workspaceId === w.id);
+      return {
+        id: w.id,
+        name: w.name,
+        slug: w.slug,
+        description: w.description,
+        role: member?.role || "member",
+      };
+    });
 
-  return c.json(result);
+    return c.json(result);
+  } catch (err: any) {
+    if (err instanceof HTTPException) throw err;
+    console.error("List workspaces error:", err);
+    return c.json({ error: "Failed to list workspaces" }, 500);
+  }
 });
 
 // Create a new workspace
@@ -85,40 +91,46 @@ router.post("/", async (c) => {
 
 // Get workspace details
 router.get("/:id", (c) => {
-  const { user } = requireUser(c);
-  const id = parseInt(c.req.param("id"));
+  try {
+    const { user } = requireUser(c);
+    const id = parseInt(c.req.param("id"));
 
-  const membership = db
-    .select()
-    .from(schema.workspaceMembers)
-    .where(and(eq(schema.workspaceMembers.workspaceId, id), eq(schema.workspaceMembers.userId, user.id)))
-    .get();
+    const membership = db
+      .select()
+      .from(schema.workspaceMembers)
+      .where(and(eq(schema.workspaceMembers.workspaceId, id), eq(schema.workspaceMembers.userId, user.id)))
+      .get();
 
-  if (!membership) {
-    throw new HTTPException(403, { message: "Access denied" });
+    if (!membership) {
+      throw new HTTPException(403, { message: "Access denied" });
+    }
+
+    const workspace = db.select().from(schema.workspaces).where(eq(schema.workspaces.id, id)).get();
+    if (!workspace) {
+      return c.json({ error: "Not found" }, 404);
+    }
+
+    // Get members count
+    const memberCount = db
+      .select()
+      .from(schema.workspaceMembers)
+      .where(eq(schema.workspaceMembers.workspaceId, id))
+      .all().length;
+
+    return c.json({
+      id: workspace.id,
+      name: workspace.name,
+      slug: workspace.slug,
+      description: workspace.description,
+      role: membership.role,
+      memberCount,
+      createdAt: workspace.createdAt,
+    });
+  } catch (err: any) {
+    if (err instanceof HTTPException) throw err;
+    console.error("Get workspace error:", err);
+    return c.json({ error: "Failed to get workspace" }, 500);
   }
-
-  const workspace = db.select().from(schema.workspaces).where(eq(schema.workspaces.id, id)).get();
-  if (!workspace) {
-    return c.json({ error: "Not found" }, 404);
-  }
-
-  // Get members count
-  const memberCount = db
-    .select()
-    .from(schema.workspaceMembers)
-    .where(eq(schema.workspaceMembers.workspaceId, id))
-    .all().length;
-
-  return c.json({
-    id: workspace.id,
-    name: workspace.name,
-    slug: workspace.slug,
-    description: workspace.description,
-    role: membership.role,
-    memberCount,
-    createdAt: workspace.createdAt,
-  });
 });
 
 // Update workspace
@@ -226,34 +238,40 @@ router.delete("/:id", async (c) => {
 
 // Get SSH key for workspace
 router.get("/:id/ssh-key", (c) => {
-  const { user } = requireUser(c);
-  const workspaceId = parseInt(c.req.param("id"));
+  try {
+    const { user } = requireUser(c);
+    const workspaceId = parseInt(c.req.param("id"));
 
-  const membership = db
-    .select()
-    .from(schema.workspaceMembers)
-    .where(and(eq(schema.workspaceMembers.workspaceId, workspaceId), eq(schema.workspaceMembers.userId, user.id)))
-    .get();
+    const membership = db
+      .select()
+      .from(schema.workspaceMembers)
+      .where(and(eq(schema.workspaceMembers.workspaceId, workspaceId), eq(schema.workspaceMembers.userId, user.id)))
+      .get();
 
-  if (!membership) {
-    throw new HTTPException(403, { message: "Access denied" });
+    if (!membership) {
+      throw new HTTPException(403, { message: "Access denied" });
+    }
+
+    const key = db
+      .select()
+      .from(schema.sshKeys)
+      .where(eq(schema.sshKeys.workspaceId, workspaceId))
+      .get();
+
+    if (!key) return c.json({ error: "No SSH key configured" }, 404);
+
+    return c.json({
+      id: key.id,
+      name: key.name,
+      publicKey: key.publicKey,
+      fingerprint: key.fingerprint,
+      createdAt: key.createdAt,
+    });
+  } catch (err: any) {
+    if (err instanceof HTTPException) throw err;
+    console.error("Get SSH key error:", err);
+    return c.json({ error: "Failed to get SSH key" }, 500);
   }
-
-  const key = db
-    .select()
-    .from(schema.sshKeys)
-    .where(eq(schema.sshKeys.workspaceId, workspaceId))
-    .get();
-
-  if (!key) return c.json({ error: "No SSH key configured" }, 404);
-
-  return c.json({
-    id: key.id,
-    name: key.name,
-    publicKey: key.publicKey,
-    fingerprint: key.fingerprint,
-    createdAt: key.createdAt,
-  });
 });
 
 // Generate new SSH key for workspace
@@ -323,62 +341,74 @@ router.post("/:id/ssh-key/generate", async (c) => {
 
 // Delete SSH key for workspace
 router.delete("/:id/ssh-key", async (c) => {
-  const { user } = requireUser(c);
-  const workspaceId = parseInt(c.req.param("id"));
+  try {
+    const { user } = requireUser(c);
+    const workspaceId = parseInt(c.req.param("id"));
 
-  // Only owner/admin can manage SSH keys
-  const membership = db
-    .select()
-    .from(schema.workspaceMembers)
-    .where(and(eq(schema.workspaceMembers.workspaceId, workspaceId), eq(schema.workspaceMembers.userId, user.id)))
-    .get();
+    // Only owner/admin can manage SSH keys
+    const membership = db
+      .select()
+      .from(schema.workspaceMembers)
+      .where(and(eq(schema.workspaceMembers.workspaceId, workspaceId), eq(schema.workspaceMembers.userId, user.id)))
+      .get();
 
-  if (!membership || (membership.role !== "owner" && membership.role !== "admin")) {
-    throw new HTTPException(403, { message: "Insufficient permissions" });
+    if (!membership || (membership.role !== "owner" && membership.role !== "admin")) {
+      throw new HTTPException(403, { message: "Insufficient permissions" });
+    }
+
+    // Delete from database
+    db.delete(schema.sshKeys).where(eq(schema.sshKeys.workspaceId, workspaceId)).run();
+
+    // Delete key files from disk
+    deleteSshKeyFiles(workspaceId);
+
+    return c.json({ success: true });
+  } catch (err: any) {
+    if (err instanceof HTTPException) throw err;
+    console.error("Delete SSH key error:", err);
+    return c.json({ error: "Failed to delete SSH key" }, 500);
   }
-
-  // Delete from database
-  db.delete(schema.sshKeys).where(eq(schema.sshKeys.workspaceId, workspaceId)).run();
-
-  // Delete key files from disk
-  deleteSshKeyFiles(workspaceId);
-
-  return c.json({ success: true });
 });
 
 // Test GitHub connection using workspace SSH key
 router.post("/:id/ssh-key/test-github", async (c) => {
-  const { user } = requireUser(c);
-  const workspaceId = parseInt(c.req.param("id"));
+  try {
+    const { user } = requireUser(c);
+    const workspaceId = parseInt(c.req.param("id"));
 
-  // User must be a member
-  const membership = db
-    .select()
-    .from(schema.workspaceMembers)
-    .where(and(eq(schema.workspaceMembers.workspaceId, workspaceId), eq(schema.workspaceMembers.userId, user.id)))
-    .get();
+    // User must be a member
+    const membership = db
+      .select()
+      .from(schema.workspaceMembers)
+      .where(and(eq(schema.workspaceMembers.workspaceId, workspaceId), eq(schema.workspaceMembers.userId, user.id)))
+      .get();
 
-  if (!membership) {
-    throw new HTTPException(403, { message: "Access denied" });
+    if (!membership) {
+      throw new HTTPException(403, { message: "Access denied" });
+    }
+
+    // Check if key exists
+    const key = db
+      .select()
+      .from(schema.sshKeys)
+      .where(eq(schema.sshKeys.workspaceId, workspaceId))
+      .get();
+
+    if (!key) {
+      return c.json({
+        success: false,
+        message: "No SSH key found for this workspace. Generate an SSH key first.",
+        details: "",
+      });
+    }
+
+    const result = await testGitHubConnection(workspaceId);
+    return c.json(result);
+  } catch (err: any) {
+    if (err instanceof HTTPException) throw err;
+    console.error("Test GitHub SSH error:", err);
+    return c.json({ error: "Failed to test GitHub connection" }, 500);
   }
-
-  // Check if key exists
-  const key = db
-    .select()
-    .from(schema.sshKeys)
-    .where(eq(schema.sshKeys.workspaceId, workspaceId))
-    .get();
-
-  if (!key) {
-    return c.json({
-      success: false,
-      message: "No SSH key found for this workspace. Generate an SSH key first.",
-      details: "",
-    });
-  }
-
-  const result = await testGitHubConnection(workspaceId);
-  return c.json(result);
 });
 
 export { router as workspacesRouter };

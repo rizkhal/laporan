@@ -9,7 +9,7 @@ dotenv.config({ path: path.join(__dirname, "../.env") });
 // Dynamic imports ensure db/index.ts (which reads env at module level) runs AFTER dotenv
 const [{ Hono }, { cors }, { HTTPException }, { serve }, { reposRouter },
   { collectionsRouter }, { settingsRouter }, { reportsRouter },
-  { analysesRouter }, { collectionDetailRouter }, { authRouter },
+  { analysesRouter }, { collectionOperationsRouter }, { authRouter },
   { workspacesRouter }, { jobsRouter }, { shareRouter }, { eventsRouter }, { runMigration }] = await Promise.all([
   import("hono"),
   import("hono/cors"),
@@ -20,7 +20,7 @@ const [{ Hono }, { cors }, { HTTPException }, { serve }, { reposRouter },
   import("./routes/settings"),
   import("./routes/reports"),
   import("./routes/analyses"),
-  import("./routes/collection-detail"),
+  import("./routes/collection-operations"),
   import("./routes/auth"),
   import("./routes/workspaces"),
   import("./routes/jobs"),
@@ -86,7 +86,7 @@ app.onError((err, c) => {
 
 app.route("/api/repos", reposRouter);
 app.route("/api/collections", collectionsRouter);
-app.route("/api/collections", collectionDetailRouter);
+app.route("/api/collections", collectionOperationsRouter);
 app.route("/api/settings", settingsRouter);
 app.route("/api/reports", reportsRouter);
 app.route("/api/analyses", analysesRouter);
