@@ -8,7 +8,7 @@ import { apiFetch, apiUrl, getActiveWorkspaceId } from "../lib/utils";
 import {
   ArrowLeft, ArrowRight, Bot, Check, ChevronDown, ChevronRight, Clipboard,
   Columns2, FileCode2, FileText, GitBranch, GitCommit,
-  Globe, Loader2, Lock, Monitor, Pencil, Save, Settings2, Share2, Sparkles,
+  Globe, Loader2, Lock, Monitor, Pencil, Save, Settings2, Share2, Sparkles, FileDown,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../components/ui/dialog";
 import { Label } from "../components/ui/label";
@@ -475,6 +475,23 @@ export default function CollectionDetail() {
                       a.remove(); URL.revokeObjectURL(url);
                     } catch (e) { addToast({ type: 'error', title: 'Download failed', description: String(e) }); }
                   }}><FileCode2 className="size-3.5" /> Markdown</Button>
+                  <Button size="sm" variant="outline" onClick={async () => {
+                    if (!report) return;
+                    try {
+                      const token = localStorage.getItem('auth_token');
+                      const wsId = getActiveWorkspaceId();
+                      const res = await fetch(apiUrl(`/reports/${report.id}/export.docx`), {
+                        headers: { 'Authorization': `Bearer ${token}`, ...(wsId ? { 'X-Workspace-Id': String(wsId) } : {}) },
+                      });
+                      if (!res.ok) { const body = await res.text().catch(()=>''); addToast({ type: 'error', title: 'Download failed', description: body || res.statusText }); return; }
+                      const blob = await res.blob();
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url; a.download = `laporan-kemajuan-pekerjaan-${collection?.title || 'report'}.docx`;
+                      document.body.appendChild(a); a.click();
+                      a.remove(); URL.revokeObjectURL(url);
+                    } catch (e) { addToast({ type: 'error', title: 'Download failed', description: String(e) }); }
+                  }}><FileDown className="size-3.5" /> DOCX</Button>
                   <Button size="sm" variant="outline" onClick={() => setShareOpen(true)}><Share2 className="size-3.5" /> Share</Button>
                   <Button size="sm" onClick={saveReport} disabled={busy === "save" || reportDraft === report.content}>{busy === "save" ? <Loader2 className="animate-spin" /> : <Save />} Save</Button>
                 </div>

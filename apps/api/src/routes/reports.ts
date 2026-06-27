@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { requireAuth, assertOwnership } from "../lib/auth";
 import { getAllStrategies, getStrategy } from "../services/report-strategies";
+import { generateReportDocx } from "../services/report-docx";
 
 const router = new Hono();
 
@@ -194,6 +195,43 @@ router.get("/:id/download/markdown", async (c) => {
   c.header("Content-Type", "text/markdown; charset=utf-8");
   c.header("Content-Disposition", `attachment; filename="laporan-kemajuan-pekerjaan-${collection?.title || "report"}.md"`);
   return c.body(report.content);
+});
+
+// Export report as DOCX
+router.get("/:id/export.docx", async (c) => {
+  const ctx = requireAuth(c);
+  const id = parseInt(c.req.param("id"));
+
+  const report = db
+    .select()
+    .from(schema.reports)
+    .where(eq(schema.reports.id, id))
+    .get();
+  if (!report) return c.json({ error: "Report not found" }, 404);
+
+  const collection = db
+    .select()
+    .from(schema.collections)
+    .where(eq(schema.collections.id, report.collectionId))
+    .get();
+  assertOwnership(collection, ctx.workspace.id, "Report");
+
+  try {
+    const buffer = await generateReportDocx(report.content);
+
+    c.header(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    );
+    c.header(
+      "Content-Disposition",
+      `attachment; filename="laporan-kemajuan-pekerjaan-${(collection?.title || "report").replace(/[^a-zA-Z0-9-]/g, "-")}.docx"`,
+    );
+    return c.body(new Uint8Array(buffer));
+  } catch (err: any) {
+    console.error("DOCX export error:", err);
+    return c.json({ error: "Failed to export DOCX" }, 500);
+  }
 });
 
 export { router as reportsRouter };
