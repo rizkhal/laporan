@@ -3,15 +3,15 @@ import { useSearchParams } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { cn } from "../lib/utils";
 import { useAuth } from "../lib/auth";
-import { User, Building2, FileText } from "lucide-react";
+import { User, Building2, Key, Cpu, Database, AlertTriangle } from "lucide-react";
 import { ProfileSection } from "./settings/ProfileSection";
 import { WorkspaceSection } from "./settings/WorkspaceSection";
 import { SshKeySection } from "./settings/SshKeySection";
 import { LlmSection } from "./settings/LlmSection";
-import { ReportTemplateSection } from "./settings/ReportTemplateSection";
 import { DbSection } from "./settings/DbSection";
+import { DangerSection } from "./settings/DangerSection";
 
-type SettingsTab = "profile" | "general" | "ssh-key" | "llm" | "report-template" | "data";
+type SettingsTab = "profile" | "workspace" | "ssh-key" | "llm" | "backup" | "danger";
 
 interface NavItem {
   id: string;
@@ -22,19 +22,17 @@ interface NavItem {
 
 const settingsNav: NavItem[] = [
   { id: "profile", label: "Profile", icon: User },
-  { id: "workspace", label: "Workspace", icon: Building2, children: [
-    { id: "general", label: "General" },
-    { id: "ssh-key", label: "SSH Key" },
-    { id: "llm", label: "LLM Providers" },
-    { id: "report-template", label: "Report Template" },
-  ]},
-  { id: "data", label: "Data", icon: FileText },
+  { id: "workspace", label: "Workspace", icon: Building2 },
+  { id: "ssh-key", label: "SSH Key", icon: Key },
+  { id: "llm", label: "LLM Providers", icon: Cpu },
+  { id: "backup", label: "Backup", icon: Database },
+  { id: "danger", label: "Danger Area", icon: AlertTriangle },
 ];
 
 export default function SettingsPage() {
   const { user, updateProfile, activeWorkspace, refreshWorkspaces } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const validTabs: SettingsTab[] = ["profile", "general", "ssh-key", "llm", "report-template", "data"];
+  const validTabs: SettingsTab[] = ["profile", "workspace", "ssh-key", "llm", "backup", "danger"];
   const activeTab = (validTabs.includes(searchParams.get("tab") as SettingsTab) ? searchParams.get("tab")! : "profile") as SettingsTab;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -66,53 +64,22 @@ export default function SettingsPage() {
       <div className="flex flex-col gap-6 lg:flex-row lg:gap-8">
         {/* Sidebar */}
         <nav className="flex shrink-0 flex-col gap-1 lg:w-56">
-          {settingsNav.map((item) => {
-            if (item.children) {
-              const hasActiveChild = item.children.some(c => c.id === activeTab);
-              return (
-                <div key={item.id}>
-                  <div className={cn(
-                    "flex items-center gap-3 px-3 py-2 text-xs font-semibold uppercase tracking-wider",
-                    hasActiveChild ? "text-foreground" : "text-muted-foreground"
-                  )}>
-                    {item.icon && <item.icon className="size-4" />}
-                    {item.label}
-                  </div>
-                  {item.children.map(child => (
-                    <button
-                      key={child.id}
-                      type="button"
-                      onClick={() => setSearchParams({ tab: child.id })}
-                      className={cn(
-                        "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors text-left pl-10",
-                        activeTab === child.id
-                          ? "bg-muted text-foreground"
-                          : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                      )}
-                    >
-                      {child.label}
-                    </button>
-                  ))}
-                </div>
-              );
-            }
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setSearchParams({ tab: item.id })}
-                className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors text-left",
-                  activeTab === item.id
-                    ? "bg-muted text-foreground"
-                    : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                )}
-              >
-                {item.icon && <item.icon className="size-4 shrink-0" />}
-                {item.label}
-              </button>
-            );
-          })}
+          {settingsNav.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setSearchParams({ tab: item.id })}
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors text-left",
+                activeTab === item.id
+                  ? "bg-muted text-foreground"
+                  : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+              )}
+            >
+              {item.icon && <item.icon className="size-4 shrink-0" />}
+              {item.label}
+            </button>
+          ))}
         </nav>
 
         {/* Content area */}
@@ -120,7 +87,7 @@ export default function SettingsPage() {
           {activeTab === "profile" && (
             <ProfileSection user={user} updateProfile={updateProfile} />
           )}
-          {activeTab === "general" && (
+          {activeTab === "workspace" && (
             <WorkspaceSection activeWorkspace={activeWorkspace} refreshWorkspaces={refreshWorkspaces} />
           )}
           {activeTab === "ssh-key" && (
@@ -129,11 +96,11 @@ export default function SettingsPage() {
           {activeTab === "llm" && (
             <LlmSection activeWorkspace={activeWorkspace} />
           )}
-          {activeTab === "report-template" && (
-            <ReportTemplateSection />
-          )}
-          {activeTab === "data" && (
+          {activeTab === "backup" && (
             <DbSection />
+          )}
+          {activeTab === "danger" && (
+            <DangerSection />
           )}
         </div>
       </div>

@@ -27,6 +27,8 @@ interface AuthContextType {
   switchWorkspace: (workspaceId: number) => Promise<void>;
   refreshWorkspaces: () => Promise<void>;
   createWorkspace: (name: string, description?: string | null) => Promise<Workspace>;
+  deleteAccount: (password: string) => Promise<void>;
+  deleteWorkspace: (workspaceId: number) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -198,6 +200,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {}
   }, []);
 
+  const deleteAccount = useCallback(async (password: string) => {
+    const stored = localStorage.getItem("auth_token");
+    if (!stored) throw new Error("Not authenticated");
+    const res = await fetch(apiUrl("/auth/account"), {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${stored}` },
+      body: JSON.stringify({ password }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Failed to delete account" }));
+      throw new Error(err.error || "Failed to delete account");
+    }
+    // Clear local state
+    localStorage.removeItem("auth_token");
+    localStorage.removeItem("active_workspace");
+    setToken(null);
+    setUser(null);
+    setWorkspaces([]);
+    setActiveWorkspace(null);
+  }, []);
+
+  const deleteWorkspace = useCallback(async (workspaceId: number) => {
+    await apiFetch(`/workspaces/${workspaceId}`, { method: "DELETE" });
+    // Refresh workspaces after deletion
+    await refreshWorkspaces();
+    // Navigate to dashboard if current workspace was deleted
+    if (activeWorkspace?.id === workspaceId) {
+      window.location.href = "/dashboard";
+    }
+  }, [activeWorkspace, refreshWorkspaces]);
+
   const createWorkspace = useCallback(async (name: string, description?: string | null): Promise<Workspace> => {
     const ws = await apiFetch<Workspace>("/workspaces", {
       method: "POST",
@@ -212,7 +245,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user, token, loading,
       workspaces, activeWorkspace,
       login, logout, updateProfile,
-      switchWorkspace, refreshWorkspaces, createWorkspace,
+      switchWorkspace, refreshWorkspaces, createWorkspace, deleteAccount, deleteWorkspace,
     }}>
       {children}
     </AuthContext.Provider>
