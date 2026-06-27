@@ -1,5 +1,5 @@
 import { useToast } from "../components/toast";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/Button";
@@ -64,7 +64,21 @@ export default function CollectionDetail() {
   const [sharePassword, setSharePassword] = useState("");
   const [shareBusy, setShareBusy] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
-  const { addToast } = useToast();
+    const [downloadOpen, setDownloadOpen] = useState(false);
+    const downloadRef = useRef<HTMLDivElement>(null);
+    const { addToast, removeToast } = useToast();
+
+    // Close download dropdown on outside click
+    useEffect(() => {
+      if (!downloadOpen) return;
+      const handleClick = (e: MouseEvent) => {
+        if (downloadRef.current && !downloadRef.current.contains(e.target as Node)) {
+          setDownloadOpen(false);
+        }
+      };
+      document.addEventListener("mousedown", handleClick);
+      return () => document.removeEventListener("mousedown", handleClick);
+    }, [downloadOpen]);
 
   async function loadAll() {
     try {
@@ -145,12 +159,17 @@ export default function CollectionDetail() {
 
   async function saveReport() {
     if (!report) return;
+    const loadingId = addToast({ type: 'loading', title: 'Saving report...' });
     try {
       setBusy("save");
       const updated = await apiFetch<Report>(`/reports/${report.id}`, { method: "PUT", body: JSON.stringify({ content: reportDraft }) });
       setReport(updated);
+      removeToast(loadingId);
+      addToast({ type: 'success', title: 'Saved', description: 'Report saved successfully' });
     } catch (err: any) {
       setError(err.message);
+      removeToast(loadingId);
+      addToast({ type: 'error', title: 'Save failed', description: err.message });
     } finally {
       setBusy(null);
     }
@@ -458,40 +477,62 @@ export default function CollectionDetail() {
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" onClick={() => setReportMode((mode) => mode === "split" ? "preview" : "split")}>{reportMode === "split" ? <Monitor className="size-3.5" /> : <Columns2 className="size-3.5" />} {reportMode === "split" ? "Preview only" : "Split view"}</Button>
                   <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(reportDraft); setCopied(true); setTimeout(() => setCopied(false), 2000); }}>{copied ? <Check className="size-3.5 text-success-foreground" /> : <Clipboard />} {copied ? "Copied!" : "Copy"}</Button>
-                  <Button size="sm" variant="outline" onClick={async () => {
-                    if (!report) return;
-                    try {
-                      const token = localStorage.getItem('auth_token');
-                      const wsId = getActiveWorkspaceId();
-                      const res = await fetch(apiUrl(`/reports/${report.id}/download/markdown`), {
-                        headers: { 'Authorization': `Bearer ${token}`, ...(wsId ? { 'X-Workspace-Id': String(wsId) } : {}) },
-                      });
-                      if (!res.ok) { const body = await res.text().catch(()=>''); addToast({ type: 'error', title: 'Download failed', description: body || res.statusText }); return; }
-                      const blob = await res.blob();
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement('a');
-                      a.href = url; a.download = `laporan-kemajuan-pekerjaan-${collection?.title || 'report'}.md`;
-                      document.body.appendChild(a); a.click();
-                      a.remove(); URL.revokeObjectURL(url);
-                    } catch (e) { addToast({ type: 'error', title: 'Download failed', description: String(e) }); }
-                  }}><FileCode2 className="size-3.5" /> Markdown</Button>
-                  <Button size="sm" variant="outline" onClick={async () => {
-                    if (!report) return;
-                    try {
-                      const token = localStorage.getItem('auth_token');
-                      const wsId = getActiveWorkspaceId();
-                      const res = await fetch(apiUrl(`/reports/${report.id}/export.docx`), {
-                        headers: { 'Authorization': `Bearer ${token}`, ...(wsId ? { 'X-Workspace-Id': String(wsId) } : {}) },
-                      });
-                      if (!res.ok) { const body = await res.text().catch(()=>''); addToast({ type: 'error', title: 'Download failed', description: body || res.statusText }); return; }
-                      const blob = await res.blob();
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement('a');
-                      a.href = url; a.download = `laporan-kemajuan-pekerjaan-${collection?.title || 'report'}.docx`;
-                      document.body.appendChild(a); a.click();
-                      a.remove(); URL.revokeObjectURL(url);
-                    } catch (e) { addToast({ type: 'error', title: 'Download failed', description: String(e) }); }
-                  }}><FileDown className="size-3.5" /> DOCX</Button>
+                  <div ref={downloadRef} className="relative">
+                                      <Button size="sm" variant="outline" onClick={() => setDownloadOpen((o) => !o)}>
+                                        <FileDown className="size-3.5" /> Download <ChevronDown className="size-3" />
+                                      </Button>
+                                      {downloadOpen && (
+                                        <div className="absolute right-0 top-full mt-1 min-w-[180px] overflow-hidden rounded-xl border bg-card shadow-xl shadow-black/10 dark:shadow-black/30 z-50">
+                                          <button type="button" onClick={async () => {
+                                                                                      setDownloadOpen(false);
+                                                                                      if (!report) return;
+                                                                                      const loadingId = addToast({ type: 'loading', title: 'Downloading markdown...' });
+                                                                                      try {
+                                                                                        const token = localStorage.getItem('auth_token');
+                                                                                        const wsId = getActiveWorkspaceId();
+                                                                                        const res = await fetch(apiUrl(`/reports/${report.id}/download/markdown`), {
+                                                                                          headers: { 'Authorization': `Bearer ${token}`, ...(wsId ? { 'X-Workspace-Id': String(wsId) } : {}) },
+                                                                                        });
+                                                                                        if (!res.ok) { removeToast(loadingId); const body = await res.text().catch(()=>''); addToast({ type: 'error', title: 'Download failed', description: body || res.statusText }); return; }
+                                                                                        const blob = await res.blob();
+                                                                                        const url = URL.createObjectURL(blob);
+                                                                                        const a = document.createElement('a');
+                                                                                        a.href = url; a.download = `laporan-kemajuan-pekerjaan-${collection?.title || 'report'}.md`;
+                                                                                        document.body.appendChild(a); a.click();
+                                                                                        a.remove(); URL.revokeObjectURL(url);
+                                                                                        removeToast(loadingId);
+                                                                                        addToast({ type: 'success', title: 'Downloaded', description: 'Markdown file downloaded' });
+                                                                                      } catch (e) { removeToast(loadingId); addToast({ type: 'error', title: 'Download failed', description: String(e) }); }
+                                                                                    }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-accent transition-colors first:rounded-t-xl last:rounded-b-xl">
+                                            <FileCode2 className="size-3.5" /> Markdown (.md)
+                                          </button>
+                                          <div className="h-px bg-border" />
+                                          <button type="button" onClick={async () => {
+                                                                                      setDownloadOpen(false);
+                                                                                      if (!report) return;
+                                                                                      const loadingId = addToast({ type: 'loading', title: 'Downloading DOCX...' });
+                                                                                      try {
+                                                                                        const token = localStorage.getItem('auth_token');
+                                                                                        const wsId = getActiveWorkspaceId();
+                                                                                        const res = await fetch(apiUrl(`/reports/${report.id}/export.docx`), {
+                                                                                          headers: { 'Authorization': `Bearer ${token}`, ...(wsId ? { 'X-Workspace-Id': String(wsId) } : {}) },
+                                                                                        });
+                                                                                        if (!res.ok) { removeToast(loadingId); const body = await res.text().catch(()=>''); addToast({ type: 'error', title: 'Download failed', description: body || res.statusText }); return; }
+                                                                                        const blob = await res.blob();
+                                                                                        const url = URL.createObjectURL(blob);
+                                                                                        const a = document.createElement('a');
+                                                                                        a.href = url; a.download = `laporan-kemajuan-pekerjaan-${collection?.title || 'report'}.docx`;
+                                                                                        document.body.appendChild(a); a.click();
+                                                                                        a.remove(); URL.revokeObjectURL(url);
+                                                                                        removeToast(loadingId);
+                                                                                        addToast({ type: 'success', title: 'Downloaded', description: 'DOCX file downloaded' });
+                                                                                      } catch (e) { removeToast(loadingId); addToast({ type: 'error', title: 'Download failed', description: String(e) }); }
+                                                                                    }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-accent transition-colors first:rounded-t-xl last:rounded-b-xl">
+                                            <FileDown className="size-3.5" /> Word (.docx)
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
                   <Button size="sm" variant="outline" onClick={() => setShareOpen(true)}><Share2 className="size-3.5" /> Share</Button>
                   <Button size="sm" onClick={saveReport} disabled={busy === "save" || reportDraft === report.content}>{busy === "save" ? <Loader2 className="animate-spin" /> : <Save />} Save</Button>
                 </div>
